@@ -12,6 +12,7 @@
 
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/image_encodings.h>
+#include <std_msgs/Header.h>
 #include <cv_bridge/cv_bridge.h>
 #include <kcf_ros/Rect.h>
 
@@ -33,11 +34,14 @@ namespace kcf_ros
 
     protected:
         int frames = 0;
-        bool debug_print_ = false;
+        bool debug_log_ = false;
+        bool debug_view_ = false;
         double kernel_sigma_ = 0.5;
         double cell_size_ = 4;
         double num_scales_ = 7;
         KCF_Tracker tracker;
+
+        std_msgs::Header header_;
 
         ros::NodeHandle nh_;
         ros::NodeHandle pnh_;
@@ -56,6 +60,7 @@ namespace kcf_ros
         /* virtual void visualize(cv::Mat& image, const cv::Rect& bb, double frames); */
         virtual void visualize(cv::Mat& image, const BBox_c& bb, double frames);
         virtual void load_image(cv::Mat& image, const sensor_msgs::Image::ConstPtr& image_msg);
+        virtual void publish_messages(const cv::Mat& image, const BBox_c& bb);
 
     private:
     }; // class KcfTrackerROS
