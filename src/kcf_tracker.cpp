@@ -20,6 +20,22 @@ namespace kcf_ros
             std::cout << "num_scales: " << num_scales_ << std::endl;
         }
 
+        debug_image_pub_ = pnh_.advertise<sensor_msgs::Image>("output_image", 1);
+        output_rect_pub_ = pnh_.advertise<kcf_ros::Rect>("output_rect", 1);
+
+        sub_image_.subscribe(pnh_, "input_image", 1);
+        sub_rect_.subscribe(pnh_, "input_rect", 1);
+
+        if (approximate_sync_){
+            approximate_sync_ = boost::make_shared<message_filters::Synchronizer<ApproximateSyncPolicy> >(1000);
+            approximate_sync_->connectInput(sub_image_, sub_rect_);
+            approximate_sync_->registerCallback(boost::bind(&KcfTrackerROS::callback, this, _1, _2));
+        } else {
+            sync_  = boost::make_shared<message_filters::Synchronizer<SyncPolicy> >(1000);
+            sync_->connectInput(sub_image_, sub_rect_);
+            sync_->registerCallback(boost::bind(&KcfTrackerROS::callback, this, _1, _2));
+        }
+
         frames = 0;
     }
 
