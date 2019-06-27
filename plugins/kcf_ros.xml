@@ -1,0 +1,10 @@
+<library path="lib/libkcf_ros">
+
+  <class name="kcf_ros/KcfTrackerROS"
+         type="kcf_ros::KcfTrackerROS"
+         base_class_type="nodelet::Nodelet">
+    <description>
+    </description>
+  </class>
+
+</library>

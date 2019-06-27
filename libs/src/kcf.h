@@ -45,7 +45,21 @@ public:
     output_sigma_factor ... spatial bandwidth (proportional to target)  (0.1)
     cell_size           ... hog cell size                               (4)
     */
- KCF_Tracker(double padding, double kernel_sigma, double lambda, double interp_factor,double output_sigma_factor, int cell_size, int num_scales) : p_padding(padding), p_output_sigma_factor(output_sigma_factor), p_kernel_sigma(kernel_sigma),p_lambda(lambda), p_interp_factor(interp_factor), p_cell_size(cell_size), p_num_scales(num_scales) {}
+ KCF_Tracker(double padding,
+             double kernel_sigma,
+             double lambda,
+             double interp_factor,
+             double output_sigma_factor,
+             int cell_size,
+             int num_scales)
+     : p_padding(padding),
+        p_output_sigma_factor(output_sigma_factor),
+        p_kernel_sigma(kernel_sigma),
+        p_lambda(lambda),
+        p_interp_factor(interp_factor),
+        p_cell_size(cell_size),
+        p_num_scales(num_scales) {}
+
     KCF_Tracker() {}
 
     // Init/re-init methods
