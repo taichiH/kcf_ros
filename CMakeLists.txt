@@ -12,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
   image_transport
   nodelet
   message_generation
+  autoware_msgs
 )
 
 find_package(OpenCV REQUIRED)
@@ -48,6 +49,7 @@ catkin_package(
   std_msgs
   cv_bridge
   image_transport
+  autoware_msgs
   )
 
 add_subdirectory(libs/src)
