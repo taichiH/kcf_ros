@@ -1,5 +1,4 @@
 #include "kcf_ros/kcf_tracker.h"
-#include "vot.hpp"
 
 namespace kcf_ros
 {
@@ -8,7 +7,7 @@ namespace kcf_ros
     nh_ = getNodeHandle();
     pnh_ = getPrivateNodeHandle();
 
-    pnh_.getParam("debug_print", debug_log_);
+    pnh_.getParam("debug_log", debug_log_);
     pnh_.getParam("debug_view", debug_view_);
     pnh_.getParam("kernel_sigma", kernel_sigma_);
     pnh_.getParam("cell_size", cell_size_);
