@@ -24,26 +24,26 @@ namespace kcf_ros
     croped_image_pub_ = pnh_.advertise<sensor_msgs::Image>("output_croped_image", 1);
     output_rect_pub_ = pnh_.advertise<kcf_ros::Rect>("output_rect", 1);
 
-    sub_raw_image_.subscribe(pnh_, "input_raw_image", 1);
+    image_sub =
+      pnh_.subscribe("input_raw_image", 1, &KcfTrackerROS::image_callback, this);
+
     sub_nearest_roi_rect_.subscribe(pnh_, "input_nearest_roi_rect", 1);
     sub_yolo_detected_boxes_.subscribe(pnh_, "input_yolo_detected_boxes", 1);
 
     if (is_approximate_sync_){
       approximate_sync_ =
-        boost::make_shared<message_filters::Synchronizer<ApproximateSyncPolicy> >(1000);
-      approximate_sync_->connectInput(sub_raw_image_,
-                                      sub_nearest_roi_rect_,
+        boost::make_shared<message_filters::Synchronizer<ApproximateSyncPolicy> >(1);
+      approximate_sync_->connectInput(sub_nearest_roi_rect_,
                                       sub_yolo_detected_boxes_);
       approximate_sync_->registerCallback(boost::bind
-                                          (&KcfTrackerROS::callback, this, _1, _2, _3));
+                                          (&KcfTrackerROS::callback, this, _1, _2));
     } else {
       sync_  =
-        boost::make_shared<message_filters::Synchronizer<SyncPolicy> >(1000);
-      sync_->connectInput(sub_raw_image_,
-                          sub_nearest_roi_rect_,
+        boost::make_shared<message_filters::Synchronizer<SyncPolicy> >(1);
+      sync_->connectInput(sub_nearest_roi_rect_,
                           sub_yolo_detected_boxes_);
       sync_->registerCallback(boost::bind
-                              (&KcfTrackerROS::callback, this, _1, _2, _3));
+                              (&KcfTrackerROS::callback, this, _1, _2));
     }
 
     frames = 0;
@@ -128,19 +128,56 @@ namespace kcf_ros
     return true;
   }
 
-  void KcfTrackerROS::callback(const sensor_msgs::Image::ConstPtr& raw_image_msg,
-                               const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,
+  void KcfTrackerROS::image_callback(const sensor_msgs::Image::ConstPtr& raw_image_msg)
+  {
+    boost::mutex::scoped_lock lock(mutex_);
+
+    header_ = raw_image_msg->header;
+    image_.release();
+    load_image(image_, raw_image_msg);
+
+    if (!tracker_initialized_){
+      if (debug_log_)
+        ROS_INFO("wait for tracker initialized");
+      return;
+    }
+
+    double time_profile_counter = cv::getCPUTickCount();
+    tracker.track(image_);
+    time_profile_counter = cv::getCPUTickCount() - time_profile_counter;
+    if (debug_log_) {
+      float time = time_profile_counter / ((double)cvGetTickFrequency() * 1000);
+      ROS_INFO("frame%d: speed-> %f ms/frame", frames, time);
+    }
+
+    BBox_c bb = tracker.getBBox();
+    cv::Mat croped_image =
+      image_(cv::Rect(bb.cx - bb.w * 0.5, bb.cy - bb.h * 0.5, bb.w, bb.h)).clone();
+    visualize(image_, bb, frames);
+    publish_messages(image_, croped_image, bb, signal_changed_);
+
+    frames++;
+  }
+
+  void KcfTrackerROS::callback(const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,
                                const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes)
   {
-    bool changed = false;
-    header_ = raw_image_msg->header;
-    cv::Mat image;
-    load_image(image, raw_image_msg);
+    boost::mutex::scoped_lock lock(mutex_);
+
+    if (image_.empty()) {
+      if (debug_log_)
+        ROS_INFO("wait for first image");
+      return;
+    }
+
+    if (prev_signal_ != nearest_roi_rect_msg->signal){
+      signal_changed_ = true;
+    } else {
+      signal_changed_ = false;
+    }
 
     // TODO: detect outlier of tracking result by time-series data processing
-
-    if (nearest_roi_rect_msg->changed || frames == 0){
-      changed = true;
+    if (signal_changed_ || callback_count_ == 0){
       if (debug_log_)
         ROS_WARN("init box on raw image!!!");
 
@@ -153,28 +190,14 @@ namespace kcf_ros
                                      box_on_nearest_roi_image.y + nearest_roi_rect_msg->y,
                                      box_on_nearest_roi_image.width,
                                      box_on_nearest_roi_image.height);
-      tracker.init(image, init_box_on_raw_image);
-    } else {
-      changed = false;
+      tracker.init(image_, init_box_on_raw_image);
+      tracker_initialized_ = true;
+
     }
 
-    double time_profile_counter = cv::getCPUTickCount();
-    tracker.track(image);
-    time_profile_counter = cv::getCPUTickCount() - time_profile_counter;
-    if (debug_log_) {
-      float time = time_profile_counter / ((double)cvGetTickFrequency() * 1000);
-      ROS_INFO("frame%d: speed-> %f ms/frame", frames, time);
-    }
-
-    BBox_c bb = tracker.getBBox();
-    cv::Mat croped_image =
-      image(cv::Rect(bb.cx - bb.w * 0.5, bb.cy - bb.h * 0.5, bb.w, bb.h)).clone();
-    visualize(image, bb, frames);
-    publish_messages(image, croped_image, bb, changed);
-
-    frames++;
+    callback_count_++;
+    prev_signal_ = nearest_roi_rect_msg->signal;
   }
-
 } // namespace kcf_ros
 
 #include <pluginlib/class_list_macros.h>
