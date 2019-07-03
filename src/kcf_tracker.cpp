@@ -1,3 +1,4 @@
+
 #include "kcf_ros/kcf_tracker.h"
 
 namespace kcf_ros
@@ -94,6 +95,7 @@ namespace kcf_ros
     output_rect.width = bb.w;
     output_rect.height = bb.h;
     output_rect.changed = changed;
+    output_rect.header = header_;
     output_rect_pub_.publish(output_rect);
     debug_image_pub_.publish(cv_bridge::CvImage(header_,
                                                 sensor_msgs::image_encodings::BGR8,
