@@ -1,0 +1,18 @@
+<launch>
+
+  <include file="$(find trafficlight_recognizer)/launch/dummy_feat_proj_bbox.launch" />
+  <include file="$(find kcf_ros)/launch/kcf_tracker.launch" />
+
+  <test test-name="test_kcf_tracker"
+        name="test_kcf_tracker"
+        pkg="jsk_tools" type="test_topic_published.py"
+        time-limit="30" retry="5">
+    <rosparam>
+      topic_0: /kcf_tracker/output_image
+      timeout_0: 30
+      topic_1: /kcf_tracker/output_rect
+      timeout_1: 30
+    </rosparam>
+  </test>
+
+</launch>

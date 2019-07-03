@@ -42,6 +42,8 @@ namespace kcf_ros
     double kernel_sigma_ = 0.5;
     double cell_size_ = 4;
     double num_scales_ = 7;
+    bool is_approximate_sync_ = true;
+
     KCF_Tracker tracker;
 
     std_msgs::Header header_;
@@ -64,7 +66,7 @@ namespace kcf_ros
                           const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes);
     virtual void visualize(cv::Mat& image, const BBox_c& bb, double frames);
     virtual void load_image(cv::Mat& image, const sensor_msgs::Image::ConstPtr& image_msg);
-    virtual void publish_messages(const cv::Mat& image, const BBox_c& bb);
+    virtual void publish_messages(const cv::Mat& image, const BBox_c& bb, bool changed);
     virtual bool boxesToBox(const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes,
                             const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,
                             cv::Rect& output_box);

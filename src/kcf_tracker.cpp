@@ -12,6 +12,7 @@ namespace kcf_ros
     pnh_.getParam("kernel_sigma", kernel_sigma_);
     pnh_.getParam("cell_size", cell_size_);
     pnh_.getParam("num_scales", num_scales_);
+    pnh_.getParam("approximate_sync", is_approximate_sync_);
 
     if (debug_log_) {
       std::cout << "kernel_sigma: " << kernel_sigma_ << std::endl;
@@ -26,7 +27,7 @@ namespace kcf_ros
     sub_nearest_roi_rect_.subscribe(pnh_, "input_nearest_roi_rect", 1);
     sub_yolo_detected_boxes_.subscribe(pnh_, "input_yolo_detected_boxes", 1);
 
-    if (approximate_sync_){
+    if (is_approximate_sync_){
       approximate_sync_ =
         boost::make_shared<message_filters::Synchronizer<ApproximateSyncPolicy> >(1000);
       approximate_sync_->connectInput(sub_raw_image_,
@@ -50,17 +51,17 @@ namespace kcf_ros
   void KcfTrackerROS::visualize(cv::Mat& image, const BBox_c& bb, double frames)
   {
     cv::putText(image, "frame: " + std::to_string(frames),
-                cv::Point(100, 100), cv::FONT_HERSHEY_SIMPLEX, 1,
-                cv::Scalar(0, 255, 0), 2, CV_AA);
+                cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 0.4,
+                cv::Scalar(0, 255, 0), 1, CV_AA);
     cv::putText(image, "kernel_sigma: " + std::to_string(kernel_sigma_),
-                cv::Point(100, 200), cv::FONT_HERSHEY_SIMPLEX, 1,
-                cv::Scalar(0, 255, 0), 2, CV_AA);
+                cv::Point(50, 80), cv::FONT_HERSHEY_SIMPLEX, 0.4,
+                cv::Scalar(0, 255, 0), 1, CV_AA);
     cv::putText(image, "cell_size: " + std::to_string(cell_size_),
-                cv::Point(100, 300), cv::FONT_HERSHEY_SIMPLEX, 1,
-                cv::Scalar(0, 255, 0), 2, CV_AA);
+                cv::Point(50, 110), cv::FONT_HERSHEY_SIMPLEX, 0.4,
+                cv::Scalar(0, 255, 0), 1, CV_AA);
     cv::putText(image, "num_scales: " + std::to_string(num_scales_),
-                cv::Point(100, 400), cv::FONT_HERSHEY_SIMPLEX, 1,
-                cv::Scalar(0, 255, 0), 2, CV_AA);
+                cv::Point(50, 140), cv::FONT_HERSHEY_SIMPLEX, 0.4,
+                cv::Scalar(0, 255, 0), 1, CV_AA);
     cv::rectangle(image, cv::Rect(bb.cx - bb.w/2., bb.cy - bb.h/2., bb.w, bb.h),
                   CV_RGB(0,255,0), 2);
 
@@ -83,13 +84,14 @@ namespace kcf_ros
     }
   }
 
-  void KcfTrackerROS::publish_messages(const cv::Mat& image, const BBox_c& bb)
+  void KcfTrackerROS::publish_messages(const cv::Mat& image, const BBox_c& bb, bool changed)
   {
     kcf_ros::Rect output_rect;
     output_rect.x = bb.cx;
     output_rect.y = bb.cy;
     output_rect.width = bb.w;
     output_rect.height = bb.h;
+    output_rect.changed = changed;
     output_rect_pub_.publish(output_rect);
     debug_image_pub_.publish(cv_bridge::CvImage(header_,
                                                 sensor_msgs::image_encodings::BGR8,
@@ -105,9 +107,11 @@ namespace kcf_ros
 
     cv::Point2f nearest_roi_image_center(nearest_roi_rect_msg->width,
                                          nearest_roi_rect_msg->height);
+
     float min_distance = std::pow(24, 24);
     cv::Rect box_on_nearest_roi_image;
     for (auto box : detected_boxes->objects) {
+
       float center_to_detected_box_distance =
         cv::norm(cv::Point2f(box.x + box.width * 0.5, box.y + box.height * 0.5) - nearest_roi_image_center);
       if (center_to_detected_box_distance < min_distance) {
@@ -123,6 +127,7 @@ namespace kcf_ros
                                const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,
                                const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes)
   {
+    bool changed = false;
     header_ = raw_image_msg->header;
     cv::Mat image;
     load_image(image, raw_image_msg);
@@ -130,6 +135,7 @@ namespace kcf_ros
     // TODO: detect outlier of tracking result by time-series data processing
 
     if (nearest_roi_rect_msg->changed || frames == 0){
+      changed = true;
       if (debug_log_)
         ROS_WARN("init box on raw image!!!");
 
@@ -143,6 +149,8 @@ namespace kcf_ros
                                      box_on_nearest_roi_image.width,
                                      box_on_nearest_roi_image.height);
       tracker.init(image, init_box_on_raw_image);
+    } else {
+      changed = false;
     }
 
     double time_profile_counter = cv::getCPUTickCount();
@@ -155,7 +163,7 @@ namespace kcf_ros
 
     BBox_c bb = tracker.getBBox();
     visualize(image, bb, frames);
-    publish_messages(image, bb);
+    publish_messages(image, bb, changed);
 
     frames++;
   }

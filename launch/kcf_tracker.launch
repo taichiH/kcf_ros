@@ -1,28 +1,28 @@
 <launch>
-
-  <arg name="input_raw_image" default="/image_raw" />
+  <arg name="input_raw_image" default="/dummy_image_publisher/output" />
   <arg name="input_nearest_roi_rect" default="/feat_proj_bbox/nearest_roi_rect" />
-  <arg name="input_yolo_detected_boxes" default="/detection/image_detector/croped_objects" />
+  <arg name="input_yolo_detected_boxes" default="/dummy_yolo3_detector/output" />
 
   <arg name="debug_log" default="true" />
-  <arg name="debug_view" default="true" />
-  <arg name="kernel_size" default="0.5" />
+  <arg name="debug_view" default="false" />
+  <arg name="kernel_sigma" default="0.5" />
   <arg name="cell_size" default="4" />
   <arg name="num_scales" default="7" />
 
   <node name="kcf_tracker"
         pkg="nodelet" type="nodelet"
         output="screen"
-        args="kcf_ros/KcfTrackerROS">
-    <remap from="input_raw_image" to="$(arg input_raw_image" />
-    <remap from="input_nearest_roi_rect" to="$(arg input_nearest_roi_rect)" />
-    <remap from="input_yolo_detected_boxes" to="$(arg input_yolo_detected_boxes)" />
-    <rosparam>
+        args="standalone kcf_ros/KcfTrackerROS">
+    <remap from="~input_raw_image" to="$(arg input_raw_image)" />
+    <remap from="~input_nearest_roi_rect" to="$(arg input_nearest_roi_rect)" />
+    <remap from="~input_yolo_detected_boxes" to="$(arg input_yolo_detected_boxes)" />
+    <rosparam subst_value="true">
       debug_log: $(arg debug_log)
       debug_view: $(arg debug_view)
       kernel_sigma: $(arg kernel_sigma)
       cell_size: $(arg cell_size)
       num_scales: $(arg num_scales)
+      approximate_sync: true
     </rosparam>
   </node>
 
