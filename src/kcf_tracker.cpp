@@ -21,6 +21,7 @@ namespace kcf_ros
     }
 
     debug_image_pub_ = pnh_.advertise<sensor_msgs::Image>("output_image", 1);
+    croped_image_pub_ = pnh_.advertise<sensor_msgs::Image>("output_croped_image", 1);
     output_rect_pub_ = pnh_.advertise<kcf_ros::Rect>("output_rect", 1);
 
     sub_raw_image_.subscribe(pnh_, "input_raw_image", 1);
@@ -84,11 +85,12 @@ namespace kcf_ros
     }
   }
 
-  void KcfTrackerROS::publish_messages(const cv::Mat& image, const BBox_c& bb, bool changed)
+  void KcfTrackerROS::publish_messages(const cv::Mat& image, const cv::Mat& croped_image,
+                                       const BBox_c& bb, bool changed)
   {
     kcf_ros::Rect output_rect;
-    output_rect.x = bb.cx;
-    output_rect.y = bb.cy;
+    output_rect.x = bb.cx - bb.w * 0.5; // left top x
+    output_rect.y = bb.cy - bb.h * 0.5; // left top y
     output_rect.width = bb.w;
     output_rect.height = bb.h;
     output_rect.changed = changed;
@@ -96,6 +98,9 @@ namespace kcf_ros
     debug_image_pub_.publish(cv_bridge::CvImage(header_,
                                                 sensor_msgs::image_encodings::BGR8,
                                                 image).toImageMsg());
+    croped_image_pub_.publish(cv_bridge::CvImage(header_,
+                                                 sensor_msgs::image_encodings::BGR8,
+                                                 croped_image).toImageMsg());
   }
 
   bool KcfTrackerROS::boxesToBox(const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes,
@@ -162,8 +167,10 @@ namespace kcf_ros
     }
 
     BBox_c bb = tracker.getBBox();
+    cv::Mat croped_image =
+      image(cv::Rect(bb.cx - bb.w * 0.5, bb.cy - bb.h * 0.5, bb.w, bb.h)).clone();
     visualize(image, bb, frames);
-    publish_messages(image, bb, changed);
+    publish_messages(image, croped_image, bb, changed);
 
     frames++;
   }
