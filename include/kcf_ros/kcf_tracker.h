@@ -44,7 +44,11 @@ namespace kcf_ros
     bool is_approximate_sync_ = true;
     bool tracker_initialized_ = false;
     bool signal_changed_ = false;
+    bool first_init_ = true;
+    bool track_flag_ = false;
     int prev_signal_ = 0;
+    int non_detected_count_ = 0;
+    int offset_ = 0;
 
     KCF_Tracker tracker;
     cv::Mat image_;
