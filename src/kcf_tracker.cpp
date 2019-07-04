@@ -1,4 +1,3 @@
-
 #include "kcf_ros/kcf_tracker.h"
 
 namespace kcf_ros
@@ -131,6 +130,50 @@ namespace kcf_ros
         return true;
     }
 
+    float KcfTrackerROS::check_detecter_confidence(const std::vector<cv::Rect> detecter_results)
+    {
+        float confidence = 0;
+
+        std::cerr << "detecter_results.size(): " << detecter_results.size() << std::endl;
+
+        auto current_result = detecter_results.at(detecter_results.size() - 1);
+        auto prev_result = detecter_results.at(detecter_results.size() - 2);
+
+        cv::Point2f current_result_center(current_result.x + current_result.width * 0.5,
+                                          current_result.y + current_result.height * 0.5);
+
+        cv::Point2f prev_result_center(prev_result.x + prev_result.width * 0.5,
+                                       prev_result.y + prev_result.height * 0.5);
+
+        float distance =
+            cv::norm(current_result_center - prev_result_center);
+        if (distance < detecter_threshold_) {
+            confidence = 1;
+        } else {
+            confidence = 0;
+        }
+        return confidence;
+    }
+
+    float KcfTrackerROS::check_tracker_confidence(const std::vector<BBox_c> tracker_results)
+    {
+        float confidence = 0;
+
+        std::cerr << "tracker_results.size(): " << tracker_results.size() << std::endl;
+
+        auto current_result = tracker_results.at(tracker_results.size() - 1);
+        auto prev_result = tracker_results.at(tracker_results.size() - 2);
+
+        float distance =
+            cv::norm(cv::Point2f(current_result.cx, current_result.cy) - cv::Point2f(prev_result.cx, prev_result.cy));
+        if (distance < tracker_threshold_) {
+            confidence = 1;
+        } else {
+            confidence = 0;
+        }
+        return confidence;
+    }
+
     void KcfTrackerROS::image_callback(const sensor_msgs::Image::ConstPtr& raw_image_msg)
     {
         boost::mutex::scoped_lock lock(mutex_);
@@ -146,7 +189,6 @@ namespace kcf_ros
         }
 
         if (track_flag_) {
-            ROS_INFO("track.");
             double time_profile_counter = cv::getCPUTickCount();
             tracker.track(image_);
             time_profile_counter = cv::getCPUTickCount() - time_profile_counter;
@@ -157,7 +199,6 @@ namespace kcf_ros
             }
 
             BBox_c bb = tracker.getBBox();
-            ROS_INFO("bb: %f, %f, %f, %f", bb.cx, bb.cy ,bb.w, bb.h);
 
             cv::Point lt(bb.cx - bb.w * 0.5, bb.cy - bb.h * 0.5);
             cv::Point rb(bb.cx + bb.w * 0.5, bb.cy + bb.h * 0.5);
@@ -168,15 +209,31 @@ namespace kcf_ros
             int width = rb.x - lt.x;
             int height = rb.y - lt.y;
 
-            ROS_INFO("lt.x, lt.y, rb.x, rb.y, width, height: %d, %d, %d, %d, %d, %d",
-                     lt.x, lt.y, rb.x, rb.y, width, height);
+            // ROS_INFO("lt.x, lt.y, rb.x, rb.y, width, height: %d, %d, %d, %d, %d, %d",
+            //          lt.x, lt.y, rb.x, rb.y, width, height);
 
-            if (width > 0.0 && height > 0.0){
-                std::cerr << width << ", " << height << std::endl;
-                cv::Mat croped_image =
-                    image_(cv::Rect(lt.x, lt.y, width, height)).clone();
-                visualize(image_, bb, frames);
-                publish_messages(image_, croped_image, bb, signal_changed_);
+            if (tracker_results_queue_.size() > queue_size_) {
+                tracker_results_queue_.erase(tracker_results_queue_.begin());
+            }
+            tracker_results_queue_.push_back(bb);
+
+            float confidence = 1;
+            if (detecter_results_queue_.size() > 5) {
+                confidence = check_tracker_confidence(tracker_results_queue_);
+            }
+
+            if (confidence > 0.5) {
+                ROS_INFO("confidence: %f", confidence);
+                if (width > 0.0 && height > 0.0){
+                    std::cerr << width << ", " << height << std::endl;
+                    cv::Mat croped_image =
+                        image_(cv::Rect(lt.x, lt.y, width, height)).clone();
+                    visualize(image_, bb, frames);
+                    publish_messages(image_, croped_image, bb, signal_changed_);
+                }
+            } else {
+                ROS_INFO("confidence: %f, track_flag_ = false", confidence);
+                track_flag_ = false;
             }
         }
         frames++;
@@ -184,72 +241,78 @@ namespace kcf_ros
 
     void KcfTrackerROS::callback(const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,
                                  const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes)
-  {
-    boost::mutex::scoped_lock lock(mutex_);
+    {
+        boost::mutex::scoped_lock lock(mutex_);
 
-    // if (image_.empty() || non_detected_count_ > 3) {
-    //   if (debug_log_)
-    //     ROS_INFO("wait for first image or detected box");
-    //   return;
-    // }
+        // if (image_.empty() || non_detected_count_ > 3) {
+        //   if (debug_log_)
+        //     ROS_INFO("wait for first image or detected box");
+        //   return;
+        // }
 
-    if (image_.empty()) {
-      if (debug_log_)
-        ROS_INFO("wait for first image");
-      return;
+        if (image_.empty()) {
+            if (debug_log_)
+                ROS_INFO("wait for first image");
+            return;
+        }
+
+        if (non_detected_count_ > 5) {
+            track_flag_ = false;
+        }
+
+        if (prev_signal_ != nearest_roi_rect_msg->signal){
+            signal_changed_ = true;
+        } else {
+            signal_changed_ = false;
+        }
+
+        // TODO: detect outlier of tracking result by time-series data processing
+        // if (signal_changed_ || callback_count_ == 0){
+        if (detected_boxes->objects.size() > 0){
+            if (debug_log_)
+                ROS_WARN("init box on raw image!!!");
+
+            non_detected_count_ = 0;
+            track_flag_ = true;
+
+            cv::Rect box_on_nearest_roi_image;
+            boxesToBox(detected_boxes, nearest_roi_rect_msg, box_on_nearest_roi_image);
+
+            // Yolo output box is detected on croped roi image by feat_proj,
+            // nearest_roi_rect_msg has a location of croped roi image on original raw image
+            cv::Rect init_box_on_raw_image(box_on_nearest_roi_image.x + nearest_roi_rect_msg->x - offset_,
+                                           box_on_nearest_roi_image.y + nearest_roi_rect_msg->y - offset_,
+                                           box_on_nearest_roi_image.width + offset_ * 2,
+                                           box_on_nearest_roi_image.height + offset_ * 2);
+
+
+            if (detecter_results_queue_.size() > 5) {
+                std::cerr << "erase" << std::endl;
+                detecter_results_queue_.erase(detecter_results_queue_.begin());
+            }
+            std::cerr << "push_back" << std::endl;
+            detecter_results_queue_.push_back(init_box_on_raw_image);
+
+            float confidence = 1;
+            if (detecter_results_queue_.size() > 5) {
+                confidence = check_detecter_confidence(detecter_results_queue_);
+            }
+
+            if (confidence > 0.5) {
+                ROS_INFO("confidence: %f", confidence);
+                tracker.init(image_, init_box_on_raw_image);
+                tracker_initialized_ = true;
+            } else {
+                ROS_INFO("confidence: %f", confidence);
+            }
+
+        } else {
+            non_detected_count_++;
+        }
+
+        callback_count_++;
+        prev_signal_ = nearest_roi_rect_msg->signal;
     }
-
-    ROS_INFO("non_detected_count_: %d", non_detected_count_);
-    if (non_detected_count_ > 5) {
-        track_flag_ = false;
-    }
-
-    if (prev_signal_ != nearest_roi_rect_msg->signal){
-      signal_changed_ = true;
-    } else {
-      signal_changed_ = false;
-    }
-
-    // TODO: detect outlier of tracking result by time-series data processing
-    // if (signal_changed_ || callback_count_ == 0){
-    if (detected_boxes->objects.size() > 0){
-      if (debug_log_)
-        ROS_WARN("init box on raw image!!!");
-
-      non_detected_count_ = 0;
-      track_flag_ = true;
- 
-      std::cerr << "detected_boxes->objects.size: " << detected_boxes->objects.size() << std::endl;
-      cv::Rect box_on_nearest_roi_image;
-      boxesToBox(detected_boxes, nearest_roi_rect_msg, box_on_nearest_roi_image);
-
-      // Yolo output box is detected on croped roi image by feat_proj,
-      // nearest_roi_rect_msg has a location of croped roi image on original raw image
-      cv::Rect init_box_on_raw_image(box_on_nearest_roi_image.x + nearest_roi_rect_msg->x - offset_,
-                                     box_on_nearest_roi_image.y + nearest_roi_rect_msg->y - offset_,
-                                     box_on_nearest_roi_image.width + offset_ * 2,
-                                     box_on_nearest_roi_image.height + offset_ * 2);
-      ROS_INFO("init_box_on_raw_image: %d, %d, %d, %d",
-               init_box_on_raw_image.x,
-               init_box_on_raw_image.y,
-               init_box_on_raw_image.width,
-               init_box_on_raw_image.height);
-
-      ROS_INFO("tracker init");
-      tracker.init(image_, init_box_on_raw_image);
-      first_init_ = false;
-
-
-      ROS_INFO("intialized.");
-      tracker_initialized_ = true;
-
-    } else {
-        non_detected_count_++;
-    }
-
-    callback_count_++;
-    prev_signal_ = nearest_roi_rect_msg->signal;
-  }
 } // namespace kcf_ros
 
 #include <pluginlib/class_list_macros.h>
