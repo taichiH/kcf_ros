@@ -56,5 +56,5 @@ add_subdirectory(libs/src)
 
 # add_executable(kcf_tracker src/kcf_tracker.cpp src/vot.hpp)
 add_library(${PROJECT_NAME} SHARED
-  src/kcf_tracker.cpp src/vot.hpp)
+  src/kcf_tracker.cpp)
 target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} kcf)
