@@ -5,7 +5,6 @@
 
 void KCF_Tracker::init(cv::Mat &img, const cv::Rect & bbox)
 {
-    std::cerr << "function: " << __func__ << std::endl;
 
     //check boundary, enforce min size
     double x1 = bbox.x, x2 = bbox.x + bbox.width, y1 = bbox.y, y2 = bbox.y + bbox.height;
@@ -42,10 +41,6 @@ void KCF_Tracker::init(cv::Mat &img, const cv::Rect & bbox)
     p_pose.cx = x1 + p_pose.w/2.;
     p_pose.cy = y1 + p_pose.h/2.;
 
-    std::cerr << " --- p_pose --- 1" << std::endl;
-    std::cerr << p_pose.cx << ", " << p_pose.cy << ", " <<
-        p_pose.w << ", " << p_pose.h << std::endl;
-
     cv::Mat input_gray, input_rgb = img.clone();
     if (img.channels() == 3){
         cv::cvtColor(img, input_gray, CV_BGR2GRAY);
@@ -54,13 +49,13 @@ void KCF_Tracker::init(cv::Mat &img, const cv::Rect & bbox)
         img.convertTo(input_gray, CV_32FC1);
 
     // don't need too large image
-    if (p_pose.w * p_pose.h > 100.*100.) {
-        std::cout << "resizing image by factor of 2" << std::endl;
-        // p_resize_image = true;
-        p_pose.scale(0.5);
-        cv::resize(input_gray, input_gray, cv::Size(0,0), 0.5, 0.5, cv::INTER_AREA);
-        cv::resize(input_rgb, input_rgb, cv::Size(0,0), 0.5, 0.5, cv::INTER_AREA);
-    }
+    // if (p_pose.w * p_pose.h > 100.*100.) {
+    //     std::cout << "resizing image by factor of 2" << std::endl;
+    //     p_resize_image = true;
+    //     p_pose.scale(0.5);
+    //     cv::resize(input_gray, input_gray, cv::Size(0,0), 0.5, 0.5, cv::INTER_AREA);
+    //     cv::resize(input_rgb, input_rgb, cv::Size(0,0), 0.5, 0.5, cv::INTER_AREA);
+    // }
 
     //compute win size + fit to fhog cell size
     p_windows_size[0] = round(p_pose.w * (1. + p_padding) / p_cell_size) * p_cell_size;
@@ -79,11 +74,6 @@ void KCF_Tracker::init(cv::Mat &img, const cv::Rect & bbox)
     double max_size_ratio = std::min(floor((img.cols + p_windows_size[0]/3)/p_cell_size)*p_cell_size/p_windows_size[0], floor((img.rows + p_windows_size[1]/3)/p_cell_size)*p_cell_size/p_windows_size[1]);
     p_min_max_scale[0] = std::pow(p_scale_step, std::ceil(std::log(min_size_ratio) / log(p_scale_step)));
     p_min_max_scale[1] = std::pow(p_scale_step, std::floor(std::log(max_size_ratio) / log(p_scale_step)));
-
-    std::cout << "init: img size " << img.cols << " " << img.rows << std::endl;
-    std::cout << "init: win size. " << p_windows_size[0] << " " << p_windows_size[1] << std::endl;
-    std::cout << "init: min max scales factors: " << p_min_max_scale[0] << " " << p_min_max_scale[1] << std::endl;
-
     p_output_sigma = std::sqrt(p_pose.w*p_pose.h) * p_output_sigma_factor / static_cast<double>(p_cell_size);
 
     //window weights, i.e. labels
@@ -107,9 +97,6 @@ void KCF_Tracker::init(cv::Mat &img, const cv::Rect & bbox)
     p_model_alphaf = p_model_alphaf_num / p_model_alphaf_den;
 //        p_model_alphaf = p_yf / (kf + p_lambda);   //equation for fast training
 
-    std::cerr << " --- p_pose 2---" << std::endl;
-    std::cerr << p_pose.cx << ", " << p_pose.cy << ", " <<
-        p_pose.w << ", " << p_pose.h << std::endl;
 }
 
 void KCF_Tracker::setTrackerPose(BBox_c &bbox, cv::Mat & img)
@@ -132,19 +119,14 @@ void KCF_Tracker::updateTrackerPosition(BBox_c &bbox)
 
 BBox_c KCF_Tracker::getBBox()
 {
-    std::cerr << "function: " << __func__ << std::endl;
     BBox_c tmp = p_pose;
     tmp.w *= p_current_scale;
     tmp.h *= p_current_scale;
 
-    std::cerr << tmp.cx << ", " << tmp.cy <<
-        ", " << tmp.w << ", " << tmp.h << std::endl;
 
     if (p_resize_image){
-        std::cerr << "p_resize_image: true" << std::endl;
         tmp.scale(2);
     } else {
-        std::cerr << "p_resize_image: false" << std::endl;
     }
 
     return tmp;
@@ -152,7 +134,6 @@ BBox_c KCF_Tracker::getBBox()
 
 void KCF_Tracker::track(cv::Mat &img)
 {
-    std::cerr << "function: " << __func__ << std::endl;
 
     cv::Mat input_gray, input_rgb = img.clone();
     if (img.channels() == 3){
@@ -249,14 +230,8 @@ void KCF_Tracker::track(cv::Mat &img)
 
     cv::Point2f new_location(max_response_pt.x, max_response_pt.y);
 
-    std::cerr << " ---new_location --- " << std::endl;
-    std::cerr << max_response_pt.x << ", " <<  max_response_pt.y << std::endl;
-
     if (m_use_subpixel_localization)
         new_location = sub_pixel_peak(max_response_pt, max_response_map);
-
-    std::cerr << " ---p_current_scale, p_cell_size --- " << std::endl;
-    std::cerr << p_current_scale << ", " << p_cell_size << std::endl;
 
     p_pose.cx += p_current_scale*p_cell_size*new_location.x;
     p_pose.cy += p_current_scale*p_cell_size*new_location.y;
@@ -264,10 +239,6 @@ void KCF_Tracker::track(cv::Mat &img)
     if (p_pose.cx > img.cols-1) p_pose.cx = img.cols-1;
     if (p_pose.cy < 0) p_pose.cy = 0;
     if (p_pose.cy > img.rows-1) p_pose.cy = img.rows-1;
-
-    std::cerr << " --- p_pose --- 3" << std::endl;
-    std::cerr << p_pose.cx << ", " << p_pose.cy << ", " <<
-        p_pose.w << ", " << p_pose.h << std::endl;
 
 
     //sub grid scale interpolation
@@ -307,10 +278,6 @@ void KCF_Tracker::track(cv::Mat &img)
     p_model_alphaf_num = p_model_alphaf_num * (1. - p_interp_factor) + alphaf_num * p_interp_factor;
     p_model_alphaf_den = p_model_alphaf_den * (1. - p_interp_factor) + alphaf_den * p_interp_factor;
     p_model_alphaf = p_model_alphaf_num / p_model_alphaf_den;
-
-    std::cerr << " --- p_pose --- 4" << std::endl;
-    std::cerr << p_pose.cx << ", " << p_pose.cy << ", " <<
-        p_pose.w << ", " << p_pose.h << std::endl;
 
 }
 
