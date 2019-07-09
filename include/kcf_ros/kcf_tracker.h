@@ -51,7 +51,7 @@ namespace kcf_ros
         int prev_signal_ = 0;
         int non_detected_count_ = 0;
         int offset_ = 0;
-        int queue_size_ = 5;
+        int queue_size_ = 2;
         float detecter_threshold_ = 100; // pixel
         float tracker_threshold_ = 100; // pixel
 
@@ -97,11 +97,17 @@ namespace kcf_ros
 
         virtual bool boxesToBox(const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes,
                                 const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,
-                                cv::Rect& output_box);
+                                cv::Rect& output_box,
+                                float& score);
 
-        virtual float check_detecter_confidence(const std::vector<cv::Rect> detecter_results);
+        virtual float check_detecter_confidence(const std::vector<cv::Rect> detecter_results,
+                                                const float detection_score);
 
         virtual float check_tracker_confidence(const std::vector<BBox_c> tracker_results);
+
+        virtual bool enqueue_detection_results(const cv::Rect& init_box_on_raw_image);
+
+        virtual bool enqueue_tracking_results(const BBox_c& bb);
 
     private:
 

@@ -108,51 +108,75 @@ namespace kcf_ros
 
     bool KcfTrackerROS::boxesToBox(const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes,
                                    const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,
-                                   cv::Rect& output_box)
+                                   cv::Rect& output_box,
+                                   float& score)
     {
         // TODO: choose a box from time-series data of detected boxes,
         // NOW: closest box from croped roi image center
 
+        if (detected_boxes->objects.size() == 0) {
+            return false;
+        }
+
         cv::Point2f nearest_roi_image_center(nearest_roi_rect_msg->width,
                                              nearest_roi_rect_msg->height);
+
+        bool has_traffic_light = false;
 
         float min_distance = std::pow(24, 24);
         cv::Rect box_on_nearest_roi_image;
         for (auto box : detected_boxes->objects) {
+            if (box.label != "traffic light")
+                continue;
+
+            has_traffic_light = true;
+            ROS_INFO("detection score: %f", box.score);
 
             float center_to_detected_box_distance =
                 cv::norm(cv::Point2f(box.x + box.width * 0.5, box.y + box.height * 0.5) - nearest_roi_image_center);
             if (center_to_detected_box_distance < min_distance) {
-                box_on_nearest_roi_image = cv::Rect(box.x, box.y, box.width, box.height);
+                output_box = cv::Rect(box.x, box.y, box.width, box.height);
+                score = box.score;
                 min_distance = center_to_detected_box_distance;
             }
         }
-        output_box = box_on_nearest_roi_image;
+        if (!has_traffic_light) {
+            ROS_WARN("no traffic light in detection results");
+            return false;
+        }
+
         return true;
     }
 
-    float KcfTrackerROS::check_detecter_confidence(const std::vector<cv::Rect> detecter_results)
+    float KcfTrackerROS::check_detecter_confidence(const std::vector<cv::Rect> detecter_results,
+                                                   const float detection_score)
     {
         float confidence = 0;
-
-        std::cerr << "detecter_results.size(): " << detecter_results.size() << std::endl;
 
         auto current_result = detecter_results.at(detecter_results.size() - 1);
         auto prev_result = detecter_results.at(detecter_results.size() - 2);
 
         cv::Point2f current_result_center(current_result.x + current_result.width * 0.5,
                                           current_result.y + current_result.height * 0.5);
-
         cv::Point2f prev_result_center(prev_result.x + prev_result.width * 0.5,
                                        prev_result.y + prev_result.height * 0.5);
 
         float distance =
             cv::norm(current_result_center - prev_result_center);
-        if (distance < detecter_threshold_) {
+
+        float detecter_threshold;
+        if (detection_score > 0.8) {
+            detecter_threshold = 2000;
+        } else {
+            detecter_threshold = 100;
+        }
+
+        if (distance < detecter_threshold) {
             confidence = 1;
         } else {
             confidence = 0;
         }
+
         return confidence;
     }
 
@@ -167,12 +191,39 @@ namespace kcf_ros
 
         float distance =
             cv::norm(cv::Point2f(current_result.cx, current_result.cy) - cv::Point2f(prev_result.cx, prev_result.cy));
+        ROS_INFO("check tracker: distance: %f", distance);
         if (distance < tracker_threshold_) {
             confidence = 1;
         } else {
             confidence = 0;
         }
         return confidence;
+    }
+
+    bool KcfTrackerROS::enqueue_detection_results(const cv::Rect& init_box_on_raw_image)
+    {
+        try {
+            if (detecter_results_queue_.size() >= queue_size_)
+                detecter_results_queue_.erase(detecter_results_queue_.begin());
+            detecter_results_queue_.push_back(init_box_on_raw_image);
+            return true;
+        } catch (...) {
+            std::cerr << "exception ..." << std::endl;
+            return false;
+        }
+    }
+
+    bool KcfTrackerROS::enqueue_tracking_results(const BBox_c& bb)
+    {
+        try {
+            if (tracker_results_queue_.size() >= queue_size_)
+                tracker_results_queue_.erase(tracker_results_queue_.begin());
+            tracker_results_queue_.push_back(bb);
+            return true;
+        } catch (...) {
+            std::cerr << "exception ..." << std::endl;
+            return false;
+        }
     }
 
     void KcfTrackerROS::callback(const sensor_msgs::Image::ConstPtr& raw_image_msg,
@@ -190,51 +241,54 @@ namespace kcf_ros
 
         if (prev_signal_ != nearest_roi_rect_msg->signal) {
             signal_changed_ = true;
+            ROS_WARN("signal changed");
         } else {
             signal_changed_ = false;
         }
 
         // detecter
-        if (detected_boxes->objects.size() > 0) {
-            ROS_WARN("detected");
+        cv::Rect box_on_nearest_roi_image;
+        float detection_score;
+        if (boxesToBox(detected_boxes, nearest_roi_rect_msg, box_on_nearest_roi_image, detection_score)) {
+            ROS_WARN("traffic light detected");
             non_detected_count_ = 0;
-            track_flag_ = true;
 
-            cv::Rect box_on_nearest_roi_image;
-            boxesToBox(detected_boxes, nearest_roi_rect_msg, box_on_nearest_roi_image);
             cv::Rect init_box_on_raw_image(box_on_nearest_roi_image.x + nearest_roi_rect_msg->x - offset_,
                                            box_on_nearest_roi_image.y + nearest_roi_rect_msg->y - offset_,
                                            box_on_nearest_roi_image.width + offset_ * 2,
                                            box_on_nearest_roi_image.height + offset_ * 2);
 
-            // if (detecter_results_queue_.size() > 5) {
-            //     detecter_results_queue_.erase(detecter_results_queue_.begin());
-            // }
-            // detecter_results_queue_.push_back(init_box_on_raw_image);
+            enqueue_detection_results(init_box_on_raw_image);
 
-            // float confidence = 1;
-            // if (detecter_results_queue_.size() > 5) {
-            //     confidence = check_detecter_confidence(detecter_results_queue_);
-            // }
+            float confidence = 0;
+            if (detecter_results_queue_.size() >= queue_size_)
+                confidence = check_detecter_confidence(detecter_results_queue_, detection_score);
 
-            // if (confidence > 0.5) {
-            //     if (debug_log_) {
-            //         ROS_INFO("confidence: %f", confidence);
-            //         ROS_WARN("init box on raw image!!!");
-            //     }
-
-            //     tracker.init(image_, init_box_on_raw_image);
-            //     tracker_initialized_ = true;
-            // } else {
-            //     ROS_INFO("confidence: %f", confidence);
-            // }
-
-            tracker.init(image_, init_box_on_raw_image);
-            tracker_initialized_ = true;
-
+            if (confidence > 0.5) {
+                tracker.init(image_, init_box_on_raw_image);
+                track_flag_ = true;
+                tracker_initialized_ = true;
+            } else {
+                track_flag_ = false;
+                tracker_initialized_ = false;
+            }
         } else {
-            ROS_WARN("non detected");
+            ROS_WARN("non traffic light detected");
             non_detected_count_++;
+
+            if (signal_changed_) {
+                track_flag_ = false;
+                tracker_initialized_ = false;
+                tracker_results_queue_.clear();
+                detecter_results_queue_.clear();
+            }
+        }
+
+
+        ROS_INFO("non_detected_count_: %d", non_detected_count_);
+        if (non_detected_count_ > 10) {
+            ROS_WARN("non detected count over 10: stop tracking");
+            track_flag_ = false;
         }
 
         // tracker
@@ -259,31 +313,28 @@ namespace kcf_ros
             int width = rb.x - lt.x;
             int height = rb.y - lt.y;
 
-            if (tracker_results_queue_.size() > queue_size_) {
-                tracker_results_queue_.erase(tracker_results_queue_.begin());
-            }
-            tracker_results_queue_.push_back(bb);
+            enqueue_tracking_results(bb);
 
-            float confidence = 1;
-            if (detecter_results_queue_.size() > 5) {
-                confidence = check_tracker_confidence(tracker_results_queue_);
+            float tracker_confidence = 0;
+            if (tracker_results_queue_.size() >= queue_size_) {
+                tracker_confidence = check_tracker_confidence(tracker_results_queue_);
             }
 
-            if (confidence > 0.5) {
-                ROS_INFO("confidence: %f", confidence);
-                cv::Mat croped_image =
-                    image_(cv::Rect(lt.x, lt.y, width, height)).clone();
+            if (tracker_confidence > 0.5) {
+                ROS_INFO("confidence: %f", tracker_confidence);
+                cv::Mat croped_image = image_(cv::Rect(lt.x, lt.y, width, height)).clone();
                 visualize(image_, bb, frames);
+                ROS_WARN("bb: (%f, %f, %f, %f)", bb.cx, bb.cy, bb.w, bb.h);
                 publish_messages(image_, croped_image, bb, signal_changed_);
             } else {
-                ROS_INFO("confidence: %f, track_flag_ = false", confidence);
+                ROS_INFO("confidence: %f, track_flag_ change to false", tracker_confidence);
                 track_flag_ = false;
+                // tracker_results_queue_.clear();
             }
         } else {
             ROS_WARN("track_flag_: false");
         }
 
-        callback_count_++;
         prev_signal_ = nearest_roi_rect_msg->signal;
     }
 } // namespace kcf_ros

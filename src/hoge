@@ -1,0 +1,26 @@
+;; This buffer is for notes you don't want to save, and for Lisp evaluation.
+;; If you want to create a file, visit that file with C-x C-f,
+;; then enter the text in that file's own buffer.
+
+            // if (detecter_results_queue_.size() > 5) {
+            //     detecter_results_queue_.erase(detecter_results_queue_.begin());
+            // }
+            // detecter_results_queue_.push_back(init_box_on_raw_image);
+
+            // float confidence = 1;
+            // if (detecter_results_queue_.size() > 5) {
+            //     confidence = check_detecter_confidence(detecter_results_queue_);
+            // }
+
+            // if (confidence > 0.5) {
+            //     if (debug_log_) {
+            //         ROS_INFO("confidence: %f", confidence);
+            //         ROS_WARN("init box on raw image!!!");
+            //     }
+
+            //     tracker.init(image_, init_box_on_raw_image);
+            //     tracker_initialized_ = true;
+            // } else {
+            //     ROS_INFO("confidence: %f", confidence);
+            // }
+
