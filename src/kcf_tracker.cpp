@@ -283,13 +283,13 @@ namespace kcf_ros
         }
 
         float detecter_threshold;
-        if (detection_score > 0.6) {
-            detecter_threshold = 2000;
+        if (detection_score > 0.8) {
+            detecter_threshold = 0.5;
         } else {
-            detecter_threshold = 100;
+            detecter_threshold = 0.05;
         }
 
-        if (distance < detecter_threshold) {
+        if (box_movement_ratio < detecter_threshold) {
             confidence = 1;
         } else {
             confidence = 0;
