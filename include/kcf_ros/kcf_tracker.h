@@ -88,7 +88,10 @@ namespace kcf_ros
 
         /* virtual void image_callback(const sensor_msgs::Image::ConstPtr& raw_image_msg); */
 
-        virtual void visualize(cv::Mat& image, const BBox_c& bb, double frames);
+        virtual void visualize(cv::Mat& image,
+                               const BBox_c& bb,
+                               const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,
+                               double frames);
 
         virtual void load_image(cv::Mat& image, const sensor_msgs::Image::ConstPtr& image_msg);
 

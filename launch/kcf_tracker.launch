@@ -8,7 +8,7 @@
   <arg name="kernel_sigma" default="1" />
   <arg name="cell_size" default="4" />
   <arg name="num_scales" default="14" />
-  <arg name="offset" default="5" />
+  <arg name="offset" default="10" />
 
   <node name="kcf_tracker"
         pkg="nodelet" type="nodelet"

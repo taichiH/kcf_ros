@@ -51,7 +51,10 @@ namespace kcf_ros
         frames = 0;
     }
 
-    void KcfTrackerROS::visualize(cv::Mat& image, const BBox_c& bb, double frames)
+    void KcfTrackerROS::visualize(cv::Mat& image,
+                                  const BBox_c& bb,
+                                  const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,
+                                  double frames)
     {
         cv::putText(image, "frame: " + std::to_string(frames),
                     cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 0.4,
@@ -65,8 +68,13 @@ namespace kcf_ros
         cv::putText(image, "num_scales: " + std::to_string(num_scales_),
                     cv::Point(50, 140), cv::FONT_HERSHEY_SIMPLEX, 0.4,
                     cv::Scalar(0, 255, 0), 1, CV_AA);
+
         cv::rectangle(image, cv::Rect(bb.cx - bb.w/2., bb.cy - bb.h/2., bb.w, bb.h),
                       CV_RGB(0,255,0), 2);
+
+        cv::rectangle(image, cv::Rect(nearest_roi_rect_msg->x, nearest_roi_rect_msg->y,
+                                      nearest_roi_rect_msg->width, nearest_roi_rect_msg->height),
+                      CV_RGB(255,0,0), 2);
 
         if (debug_view_){
             cv::namedWindow("output", CV_WINDOW_NORMAL);
@@ -130,7 +138,7 @@ namespace kcf_ros
                 continue;
 
             has_traffic_light = true;
-            ROS_INFO("detection score: %f", box.score);
+            ROS_INFO("detection score: %f, box: %d, %d, %d, %d", box.score, box.x, box.y, box.width, box.height);
 
             float center_to_detected_box_distance =
                 cv::norm(cv::Point2f(box.x + box.width * 0.5, box.y + box.height * 0.5) - nearest_roi_image_center);
@@ -183,8 +191,6 @@ namespace kcf_ros
     float KcfTrackerROS::check_tracker_confidence(const std::vector<BBox_c> tracker_results)
     {
         float confidence = 0;
-
-        std::cerr << "tracker_results.size(): " << tracker_results.size() << std::endl;
 
         auto current_result = tracker_results.at(tracker_results.size() - 1);
         auto prev_result = tracker_results.at(tracker_results.size() - 2);
@@ -250,6 +256,12 @@ namespace kcf_ros
         cv::Rect box_on_nearest_roi_image;
         float detection_score;
         if (boxesToBox(detected_boxes, nearest_roi_rect_msg, box_on_nearest_roi_image, detection_score)) {
+            ROS_WARN("box_on_nearest_roi_image: %d, %d, %d, %d",
+                     box_on_nearest_roi_image.x,
+                     box_on_nearest_roi_image.y,
+                     box_on_nearest_roi_image.width,
+                     box_on_nearest_roi_image.height);
+
             ROS_WARN("traffic light detected");
             non_detected_count_ = 0;
 
@@ -303,6 +315,7 @@ namespace kcf_ros
             tracker.track(image_);
 
             BBox_c bb = tracker.getBBox();
+            ROS_WARN("bb: (%f, %f, %f, %f)", bb.cx, bb.cy, bb.w, bb.h);
 
             cv::Point lt(bb.cx - bb.w * 0.5, bb.cy - bb.h * 0.5);
             cv::Point rb(bb.cx + bb.w * 0.5, bb.cy + bb.h * 0.5);
@@ -323,8 +336,8 @@ namespace kcf_ros
             if (tracker_confidence > 0.5) {
                 ROS_INFO("confidence: %f", tracker_confidence);
                 cv::Mat croped_image = image_(cv::Rect(lt.x, lt.y, width, height)).clone();
-                visualize(image_, bb, frames);
-                ROS_WARN("bb: (%f, %f, %f, %f)", bb.cx, bb.cy, bb.w, bb.h);
+                visualize(image_, bb, nearest_roi_rect_msg, frames);
+
                 publish_messages(image_, croped_image, bb, signal_changed_);
             } else {
                 ROS_INFO("confidence: %f, track_flag_ change to false", tracker_confidence);
