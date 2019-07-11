@@ -199,23 +199,24 @@ namespace kcf_ros
         for (autoware_msgs::DetectedObject box : detected_boxes->objects) {
             if (box.label != "traffic light")
                 continue;
-
             has_traffic_light = true;
-            ROS_INFO("detection score: %f, box: %d, %d, %d, %d", box.score, box.x, box.y, box.width, box.height);
 
             // float center_to_detected_box_distance =
             //     cv::norm(cv::Point2f(box.x + box.width * 0.5, box.y + box.height * 0.5) - nearest_roi_image_center);
             // if (center_to_detected_box_distance < min_distance) {
             //     output_box = cv::Rect(box.x, box.y, box.width, box.height);
+            //     score = box.score;
             //     min_distance = center_to_detected_box_distance;
-
             // }
 
-            score = calc_detection_score(box, nearest_roi_image_center);
-            if (score > max_score) {
+            float tmp_score = calc_detection_score(box, nearest_roi_image_center);
+            if (tmp_score > max_score) {
                 output_box = cv::Rect(box.x, box.y, box.width, box.height);
-                max_score = score;
+                score = tmp_score;
+                max_score = tmp_score;
             }
+
+            ROS_INFO("detection score: %f, box: %d, %d, %d, %d", tmp_score, box.x, box.y, box.width, box.height);
         }
         if (!has_traffic_light) {
             ROS_WARN("no traffic light in detection results");
@@ -226,7 +227,8 @@ namespace kcf_ros
     }
 
     float KcfTrackerROS::check_detecter_confidence(const std::vector<cv::Rect> detecter_results,
-                                                   const float detection_score)
+                                                   const float detection_score,
+                                                   cv::Rect& init_box_on_raw_image)
     {
         float confidence = 0;
 
@@ -240,9 +242,48 @@ namespace kcf_ros
 
         float distance =
             cv::norm(current_result_center - prev_result_center);
+        ROS_WARN("detecter distance: %f", distance);
+
+        float raw_image_diagonal = Eigen::Vector2d(raw_image_width_, raw_image_height_).norm();
+        float box_movement_ratio = distance / raw_image_diagonal;
+        ROS_WARN("box_movement_ratio: %f", box_movement_ratio);
+
+        ROS_WARN("prev_result.height, prev_result.width: %d, %d", prev_result.height, prev_result.width);
+        float prev_box_ratio = float(prev_result.height) / float(prev_result.width);
+        float current_box_ratio = float(current_result.height) / float(current_result.width);
+
+        float box_size_confidence;
+        int largest_ratio_index = 0; // prev:-2 current: -1
+        if (float(prev_box_ratio) > float(current_box_ratio)) {
+            box_size_confidence = float(current_box_ratio) / float(prev_box_ratio);
+            largest_ratio_index = -2;
+        } else {
+            box_size_confidence = float(prev_box_ratio)/ float(current_box_ratio);
+            largest_ratio_index = -1;
+        }
+
+        ROS_WARN("box_size_confidence, current_box_ratio, prev_box_ratio: %f, %f, %f",
+                 box_size_confidence, current_box_ratio, prev_box_ratio);
+
+        if (box_movement_ratio < 0.05 and box_size_confidence < 0.7) {
+            // ROS_WARN("box_movement_ratio < 0.05 and box_size_confidence < 0.7: do not update box size");
+            // if (largest_ratio_index == -2) {
+            //     init_box_on_raw_image.width = prev_result.width;
+            //     init_box_on_raw_image.height = prev_result.height;
+            // } else if (largest_ratio_index == -1) {
+            //     init_box_on_raw_image.width = current_result.width;
+            //     init_box_on_raw_image.height = current_result.height;
+            // } else {
+            //     ROS_ERROR("error on %s", __func__);
+            // }
+
+            ROS_WARN("box_movement_ratio < 0.05 and box_size_confidence < 0.7: confidence 0");
+            confidence = 0;
+            return confidence;
+        }
 
         float detecter_threshold;
-        if (detection_score > 0.8) {
+        if (detection_score > 0.6) {
             detecter_threshold = 2000;
         } else {
             detecter_threshold = 100;
@@ -307,6 +348,8 @@ namespace kcf_ros
     {
         std::cerr << "------------------" << __func__ << std::endl;
         load_image(image_, raw_image_msg);
+        raw_image_width_ = image_.cols;
+        raw_image_height_ = image_.rows;
 
         if (image_.empty()) {
             if (debug_log_)
@@ -325,11 +368,11 @@ namespace kcf_ros
         cv::Rect box_on_nearest_roi_image;
         float detection_score;
         if (boxesToBox(detected_boxes, nearest_roi_rect_msg, box_on_nearest_roi_image, detection_score)) {
-            ROS_WARN("box_on_nearest_roi_image: %d, %d, %d, %d",
-                     box_on_nearest_roi_image.x,
-                     box_on_nearest_roi_image.y,
-                     box_on_nearest_roi_image.width,
-                     box_on_nearest_roi_image.height);
+            // ROS_WARN("box_on_nearest_roi_image: %d, %d, %d, %d",
+            //          box_on_nearest_roi_image.x,
+            //          box_on_nearest_roi_image.y,
+            //          box_on_nearest_roi_image.width,
+            //          box_on_nearest_roi_image.height);
 
             ROS_WARN("traffic light detected");
             non_detected_count_ = 0;
@@ -343,7 +386,9 @@ namespace kcf_ros
 
             float confidence = 0;
             if (detecter_results_queue_.size() >= queue_size_)
-                confidence = check_detecter_confidence(detecter_results_queue_, detection_score);
+                confidence = check_detecter_confidence(detecter_results_queue_, detection_score, init_box_on_raw_image);
+
+            ROS_INFO("detecter confidence: %f", confidence);
 
             if (confidence > 0.5) {
                 tracker.init(image_, init_box_on_raw_image);

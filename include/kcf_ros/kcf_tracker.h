@@ -66,6 +66,8 @@ namespace kcf_ros
         int queue_size_ = 2;
         float detecter_threshold_ = 100; // pixel
         float tracker_threshold_ = 100; // pixel
+        int raw_image_width_ = 0;
+        int raw_image_height_ = 0;
 
         KCF_Tracker tracker;
         cv::Mat image_;
@@ -123,7 +125,8 @@ namespace kcf_ros
                                 float& score);
 
         virtual float check_detecter_confidence(const std::vector<cv::Rect> detecter_results,
-                                                const float detection_score);
+                                                const float detection_score,
+                                                cv::Rect& init_box_on_raw_image);
 
         virtual float check_tracker_confidence(const std::vector<BBox_c> tracker_results);
 
