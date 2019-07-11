@@ -193,6 +193,7 @@ namespace kcf_ros
 
         bool has_traffic_light = false;
 
+        float max_score = 0;
         float min_distance = std::pow(24, 24);
         cv::Rect box_on_nearest_roi_image;
         for (autoware_msgs::DetectedObject box : detected_boxes->objects) {
@@ -202,13 +203,18 @@ namespace kcf_ros
             has_traffic_light = true;
             ROS_INFO("detection score: %f, box: %d, %d, %d, %d", box.score, box.x, box.y, box.width, box.height);
 
+            // float center_to_detected_box_distance =
+            //     cv::norm(cv::Point2f(box.x + box.width * 0.5, box.y + box.height * 0.5) - nearest_roi_image_center);
+            // if (center_to_detected_box_distance < min_distance) {
+            //     output_box = cv::Rect(box.x, box.y, box.width, box.height);
+            //     min_distance = center_to_detected_box_distance;
+
+            // }
+
             score = calc_detection_score(box, nearest_roi_image_center);
-            float center_to_detected_box_distance =
-                cv::norm(cv::Point2f(box.x + box.width * 0.5, box.y + box.height * 0.5) - nearest_roi_image_center);
-            if (center_to_detected_box_distance < min_distance) {
+            if (score > max_score) {
                 output_box = cv::Rect(box.x, box.y, box.width, box.height);
-                score = box.score;
-                min_distance = center_to_detected_box_distance;
+                max_score = score;
             }
         }
         if (!has_traffic_light) {
