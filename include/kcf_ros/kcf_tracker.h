@@ -105,7 +105,8 @@ namespace kcf_ros
         virtual void visualize(cv::Mat& image,
                                const BBox_c& bb,
                                const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,
-                               double frames);
+                               double frames,
+                               float box_movement_ratio);
 
         virtual void load_image(cv::Mat& image, const sensor_msgs::Image::ConstPtr& image_msg);
 
@@ -126,6 +127,7 @@ namespace kcf_ros
 
         virtual float check_detecter_confidence(const std::vector<cv::Rect> detecter_results,
                                                 const float detection_score,
+                                                float& movement,
                                                 cv::Rect& init_box_on_raw_image);
 
         virtual float check_tracker_confidence(const std::vector<BBox_c> tracker_results);

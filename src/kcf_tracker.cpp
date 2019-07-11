@@ -54,19 +54,23 @@ namespace kcf_ros
     void KcfTrackerROS::visualize(cv::Mat& image,
                                   const BBox_c& bb,
                                   const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,
-                                  double frames)
+                                  double frames,
+                                  float box_movement_ratio)
     {
         cv::putText(image, "frame: " + std::to_string(frames),
-                    cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 0.4,
+                    cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 0.8,
                     cv::Scalar(0, 255, 0), 1, CV_AA);
         cv::putText(image, "kernel_sigma: " + std::to_string(kernel_sigma_),
-                    cv::Point(50, 80), cv::FONT_HERSHEY_SIMPLEX, 0.4,
+                    cv::Point(50, 100), cv::FONT_HERSHEY_SIMPLEX, 0.8,
                     cv::Scalar(0, 255, 0), 1, CV_AA);
         cv::putText(image, "cell_size: " + std::to_string(cell_size_),
-                    cv::Point(50, 110), cv::FONT_HERSHEY_SIMPLEX, 0.4,
+                    cv::Point(50, 150), cv::FONT_HERSHEY_SIMPLEX, 0.8,
                     cv::Scalar(0, 255, 0), 1, CV_AA);
         cv::putText(image, "num_scales: " + std::to_string(num_scales_),
-                    cv::Point(50, 140), cv::FONT_HERSHEY_SIMPLEX, 0.4,
+                    cv::Point(50, 200), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+                    cv::Scalar(0, 255, 0), 1, CV_AA);
+        cv::putText(image, "box_movement_ratio: " + std::to_string(box_movement_ratio),
+                    cv::Point(50, 250), cv::FONT_HERSHEY_SIMPLEX, 0.8,
                     cv::Scalar(0, 255, 0), 1, CV_AA);
 
         cv::rectangle(image, cv::Rect(bb.cx - bb.w/2., bb.cy - bb.h/2., bb.w, bb.h),
@@ -228,6 +232,7 @@ namespace kcf_ros
 
     float KcfTrackerROS::check_detecter_confidence(const std::vector<cv::Rect> detecter_results,
                                                    const float detection_score,
+                                                   float& movement,
                                                    cv::Rect& init_box_on_raw_image)
     {
         float confidence = 0;
@@ -295,6 +300,7 @@ namespace kcf_ros
             confidence = 0;
         }
 
+        movement = box_movement_ratio;
         return confidence;
     }
 
@@ -364,6 +370,7 @@ namespace kcf_ros
             signal_changed_ = false;
         }
 
+        float box_movement_ratio = 0;
         // detecter
         cv::Rect box_on_nearest_roi_image;
         float detection_score;
@@ -385,8 +392,10 @@ namespace kcf_ros
             enqueue_detection_results(init_box_on_raw_image);
 
             float confidence = 0;
+
             if (detecter_results_queue_.size() >= queue_size_)
-                confidence = check_detecter_confidence(detecter_results_queue_, detection_score, init_box_on_raw_image);
+                confidence = check_detecter_confidence(detecter_results_queue_, detection_score,
+                                                       box_movement_ratio, init_box_on_raw_image);
 
             ROS_INFO("detecter confidence: %f", confidence);
 
@@ -450,7 +459,7 @@ namespace kcf_ros
             if (tracker_confidence > 0.5) {
                 ROS_INFO("confidence: %f", tracker_confidence);
                 cv::Mat croped_image = image_(cv::Rect(lt.x, lt.y, width, height)).clone();
-                visualize(image_, bb, nearest_roi_rect_msg, frames);
+                visualize(image_, bb, nearest_roi_rect_msg, frames, box_movement_ratio);
 
                 publish_messages(image_, croped_image, bb, signal_changed_);
             } else {
