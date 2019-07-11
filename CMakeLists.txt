@@ -12,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
   image_transport
   nodelet
   message_generation
+  eigen_conversions
   autoware_msgs
 )
 
@@ -23,6 +24,7 @@ include_directories (
   include
   ${catkin_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
+  ${EIGEN_INCLUDE_DIRS}
   ${CMAKE_BINARY_DIR}/
   ${CMAKE_SOURCE_DIR}/libs/src/
   ${CMAKE_SOURCE_DIR}/libs/src/piotr_fhog
@@ -57,4 +59,4 @@ add_subdirectory(libs/src)
 # add_executable(kcf_tracker src/kcf_tracker.cpp src/vot.hpp)
 add_library(${PROJECT_NAME} SHARED
   src/kcf_tracker.cpp)
-target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} kcf)
+target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${EIGEN_LIBRARIES} kcf)

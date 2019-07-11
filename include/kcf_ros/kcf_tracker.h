@@ -16,11 +16,21 @@
 #include <cv_bridge/cv_bridge.h>
 #include <kcf_ros/Rect.h>
 #include <autoware_msgs/DetectedObjectArray.h>
+#include <eigen_conversions/eigen_msg.h>
 
 #include "kcf.h"
 
 namespace kcf_ros
 {
+    class GaussianDistribution{
+    public:
+        int d = 2;
+        Eigen::Vector2d mean = Eigen::Vector2d(0,0);
+        Eigen::MatrixXd cov = Eigen::MatrixXd::Identity(d, d);
+        Eigen::MatrixXd cov_inverse = cov;
+        double cov_det_sqrt = std::sqrt(cov.determinant());
+    };
+
     class KcfTrackerROS : public nodelet::Nodelet
     {
     public:
@@ -36,6 +46,8 @@ namespace kcf_ros
             > ApproximateSyncPolicy;
 
     protected:
+        double pi = 3.141592653589793;
+
         int frames = 0;
         int callback_count_ = 0;
         bool debug_log_ = false;
@@ -97,6 +109,13 @@ namespace kcf_ros
 
         virtual void publish_messages(const cv::Mat& image, const cv::Mat& croped_image,
                                       const BBox_c& bb, bool changed);
+
+        virtual double calc_detection_score(const autoware_msgs::DetectedObject& box,
+                                          const cv::Point2f& nearest_roi_image_center);
+
+        virtual bool calc_gaussian(double& likelihood,
+                                   const Eigen::Vector2d& input_vec,
+                                   const GaussianDistribution& ditribution);
 
         virtual bool boxesToBox(const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes,
                                 const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,

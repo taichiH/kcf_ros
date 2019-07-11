@@ -114,6 +114,68 @@ namespace kcf_ros
                                                      croped_image).toImageMsg());
     }
 
+    bool KcfTrackerROS::calc_gaussian(double& likelihood,
+                                      const Eigen::Vector2d& input_vec,
+                                      const GaussianDistribution& distribution)
+    {
+        likelihood = 0;
+        try {
+            double tmp1 = 1 / (std::pow((2 * pi), distribution.d) * distribution.cov_det_sqrt);
+            std::cerr << "tmp1: " << tmp1 << std::endl;
+
+            auto v_t = (input_vec - distribution.mean).transpose();
+            std::cout << "v_t: " << v_t << std::endl;
+
+            auto v = (distribution.cov_inverse * (input_vec - distribution.mean));
+            std::cout << "v: " << v << std::endl;
+
+            double tmp2 = std::exp(-0.5 * v_t * v);
+            std::cerr << "tmp2: " << tmp2 << std::endl;
+
+            likelihood = tmp1 * tmp2;
+            return true;
+        } catch(...) {
+            ROS_ERROR("error in %s", __func__);
+            return false;
+        }
+    }
+
+
+    double KcfTrackerROS::calc_detection_score(const autoware_msgs::DetectedObject& box,
+                                               const cv::Point2f& nearest_roi_image_center)
+    {
+        double score = 0;
+        double w_score = box.score;
+        double w_distance = 0;
+
+        bool gaussian_distance_ = false;
+        Eigen::Vector2d input_vec(box.x + box.width * 0.5,
+                                  box.y + box.height * 0.5);
+        Eigen::Vector2d center_vec(nearest_roi_image_center.x,
+                                   nearest_roi_image_center.y);
+
+        double w =(nearest_roi_image_center.x * 2);
+        double h =(nearest_roi_image_center.y * 2);
+
+        // calc gaussian distance
+        if (gaussian_distance_) {
+            double likelihood;
+            GaussianDistribution distribution;
+            distribution.mean = center_vec;
+            calc_gaussian(likelihood, input_vec, distribution);
+            std::cerr << "likelihood: " << likelihood << std::endl;
+            w_distance = likelihood;
+        } else {
+            double diagonal = std::sqrt(w * w + h * h);
+            w_distance = 1 - (input_vec - center_vec).norm() / diagonal;
+        }
+
+        score = (w_score + w_distance) / 2;
+        ROS_WARN("score, w_distance, w_score: %f, %f, %f", score, w_distance, w_score);
+
+        return score;
+    }
+
     bool KcfTrackerROS::boxesToBox(const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes,
                                    const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,
                                    cv::Rect& output_box,
@@ -126,20 +188,21 @@ namespace kcf_ros
             return false;
         }
 
-        cv::Point2f nearest_roi_image_center(nearest_roi_rect_msg->width,
-                                             nearest_roi_rect_msg->height);
+        cv::Point2f nearest_roi_image_center(nearest_roi_rect_msg->width * 0.5,
+                                             nearest_roi_rect_msg->height * 0.5);
 
         bool has_traffic_light = false;
 
         float min_distance = std::pow(24, 24);
         cv::Rect box_on_nearest_roi_image;
-        for (auto box : detected_boxes->objects) {
+        for (autoware_msgs::DetectedObject box : detected_boxes->objects) {
             if (box.label != "traffic light")
                 continue;
 
             has_traffic_light = true;
             ROS_INFO("detection score: %f, box: %d, %d, %d, %d", box.score, box.x, box.y, box.width, box.height);
 
+            score = calc_detection_score(box, nearest_roi_image_center);
             float center_to_detected_box_distance =
                 cv::norm(cv::Point2f(box.x + box.width * 0.5, box.y + box.height * 0.5) - nearest_roi_image_center);
             if (center_to_detected_box_distance < min_distance) {
