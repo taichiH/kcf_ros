@@ -230,15 +230,15 @@ namespace kcf_ros
         return true;
     }
 
-    float KcfTrackerROS::check_detecter_confidence(const std::vector<cv::Rect> detecter_results,
+    float KcfTrackerROS::check_detector_confidence(const std::vector<cv::Rect> detector_results,
                                                    const float detection_score,
                                                    float& movement,
                                                    cv::Rect& init_box_on_raw_image)
     {
         float confidence = 0;
 
-        auto current_result = detecter_results.at(detecter_results.size() - 1);
-        auto prev_result = detecter_results.at(detecter_results.size() - 2);
+        auto current_result = detector_results.at(detector_results.size() - 1);
+        auto prev_result = detector_results.at(detector_results.size() - 2);
 
         cv::Point2f current_result_center(current_result.x + current_result.width * 0.5,
                                           current_result.y + current_result.height * 0.5);
@@ -247,13 +247,14 @@ namespace kcf_ros
 
         float distance =
             cv::norm(current_result_center - prev_result_center);
-        ROS_WARN("detecter distance: %f", distance);
+        // ROS_WARN("detector distance: %f", distance);
 
         float raw_image_diagonal = Eigen::Vector2d(raw_image_width_, raw_image_height_).norm();
         float box_movement_ratio = distance / raw_image_diagonal;
         ROS_WARN("box_movement_ratio: %f", box_movement_ratio);
 
-        ROS_WARN("prev_result.height, prev_result.width: %d, %d", prev_result.height, prev_result.width);
+        // ROS_WARN("prev_result.height, prev_result.width: %d, %d", prev_result.height, prev_result.width);
+
         float prev_box_ratio = float(prev_result.height) / float(prev_result.width);
         float current_box_ratio = float(current_result.height) / float(current_result.width);
 
@@ -270,6 +271,7 @@ namespace kcf_ros
         ROS_WARN("box_size_confidence, current_box_ratio, prev_box_ratio: %f, %f, %f",
                  box_size_confidence, current_box_ratio, prev_box_ratio);
 
+        // box size significantly changed even box position almost unchanged between prev frame and current frame
         if (box_movement_ratio < 0.05 and box_size_confidence < 0.7) {
             // ROS_WARN("box_movement_ratio < 0.05 and box_size_confidence < 0.7: do not update box size");
             // if (largest_ratio_index == -2) {
@@ -287,14 +289,16 @@ namespace kcf_ros
             return confidence;
         }
 
-        float detecter_threshold;
+        ROS_WARN("box_movement_ratio > 0.05 and box_size_confidence > 0.7");
+
+        float detector_threshold;
         if (detection_score > 0.8) {
-            detecter_threshold = 0.5;
+            detector_threshold = 0.5;
         } else {
-            detecter_threshold = 0.05;
+            detector_threshold = 0.05;
         }
 
-        if (box_movement_ratio < detecter_threshold) {
+        if (box_movement_ratio < detector_threshold) {
             confidence = 1;
         } else {
             confidence = 0;
@@ -325,9 +329,9 @@ namespace kcf_ros
     bool KcfTrackerROS::enqueue_detection_results(const cv::Rect& init_box_on_raw_image)
     {
         try {
-            if (detecter_results_queue_.size() >= queue_size_)
-                detecter_results_queue_.erase(detecter_results_queue_.begin());
-            detecter_results_queue_.push_back(init_box_on_raw_image);
+            if (detector_results_queue_.size() >= queue_size_)
+                detector_results_queue_.erase(detector_results_queue_.begin());
+            detector_results_queue_.push_back(init_box_on_raw_image);
             return true;
         } catch (...) {
             std::cerr << "exception ..." << std::endl;
@@ -353,6 +357,9 @@ namespace kcf_ros
                                  const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes)
     {
         std::cerr << "------------------" << __func__ << std::endl;
+        ROS_INFO("prev_signal: %d", prev_signal_);
+        ROS_INFO("nearest_roi_rect_msg->signal: %d", nearest_roi_rect_msg->signal);
+
         load_image(image_, raw_image_msg);
         raw_image_width_ = image_.cols;
         raw_image_height_ = image_.rows;
@@ -360,6 +367,7 @@ namespace kcf_ros
         if (image_.empty()) {
             if (debug_log_)
                 ROS_INFO("wait for first image");
+            prev_signal_ = nearest_roi_rect_msg->signal;
             return;
         }
 
@@ -371,7 +379,7 @@ namespace kcf_ros
         }
 
         float box_movement_ratio = 0;
-        // detecter
+        // detector
         cv::Rect box_on_nearest_roi_image;
         float detection_score;
         if (boxesToBox(detected_boxes, nearest_roi_rect_msg, box_on_nearest_roi_image, detection_score)) {
@@ -392,12 +400,11 @@ namespace kcf_ros
             enqueue_detection_results(init_box_on_raw_image);
 
             float confidence = 0;
-
-            if (detecter_results_queue_.size() >= queue_size_)
-                confidence = check_detecter_confidence(detecter_results_queue_, detection_score,
+            if (detector_results_queue_.size() >= queue_size_)
+                confidence = check_detector_confidence(detector_results_queue_, detection_score,
                                                        box_movement_ratio, init_box_on_raw_image);
 
-            ROS_INFO("detecter confidence: %f", confidence);
+            ROS_INFO("detector confidence: %f", confidence);
 
             if (confidence > 0.5) {
                 tracker.init(image_, init_box_on_raw_image);
@@ -412,10 +419,11 @@ namespace kcf_ros
             non_detected_count_++;
 
             if (signal_changed_) {
+                ROS_WARN("signal changed");
                 track_flag_ = false;
                 tracker_initialized_ = false;
                 tracker_results_queue_.clear();
-                detecter_results_queue_.clear();
+                detector_results_queue_.clear();
             }
         }
 
@@ -430,6 +438,7 @@ namespace kcf_ros
         if (!tracker_initialized_) {
             if (debug_log_)
                 ROS_INFO("wait for tracker initialized");
+            prev_signal_ = nearest_roi_rect_msg->signal;
             return;
         }
 
