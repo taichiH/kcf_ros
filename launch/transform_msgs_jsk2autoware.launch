@@ -1,0 +1,15 @@
+<launch>
+  <arg name="input_rects" default="ssd_object_detector/output/rect" />
+  <arg name="input_classes" default="ssd_object_detector/output/class" />
+
+  <node name="transform_msgs_jsk2autoware"
+        pkg="kcf_ros" type="transform_msgs_jsk2autoware.py"
+        output="screen">
+    <remap from="~input_rects" to="$(arg input_rects)" />
+    <remap from="~input_classes" to="$(arg input_classes)" />
+    <rosparam subst_value="true">
+      approximate_sync: False
+    </rosparam>
+  </node>
+
+</launch>
