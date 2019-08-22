@@ -36,13 +36,11 @@ namespace kcf_ros
     public:
         typedef message_filters::sync_policies::ExactTime<
             sensor_msgs::Image,
-            kcf_ros::Rect,
-            autoware_msgs::DetectedObjectArray
+            kcf_ros::Rect
             > SyncPolicy;
         typedef message_filters::sync_policies::ApproximateTime<
             sensor_msgs::Image,
-            kcf_ros::Rect,
-            autoware_msgs::DetectedObjectArray
+            kcf_ros::Rect
             > ApproximateSyncPolicy;
 
     protected:
@@ -69,8 +67,17 @@ namespace kcf_ros
         int raw_image_width_ = 0;
         int raw_image_height_ = 0;
 
+        int boxes_callback_cnt_ = 0;
+        int prev_boxes_callback_cnt_ = 0;
+        double detected_boxes_stamp_ = 0.0;
+        int buffer_size_ = 100;
+
         KCF_Tracker tracker;
-        cv::Mat image_;
+        autoware_msgs::DetectedObjectArray::ConstPtr detected_boxes_;
+
+        std::vector<double> image_stamps;
+        std::vector<cv::Mat> image_buffer;
+
 
         std::vector<BBox_c> tracker_results_queue_;
         std::vector<cv::Rect> detector_results_queue_;
@@ -84,7 +91,7 @@ namespace kcf_ros
         ros::Publisher croped_image_pub_;
         ros::Publisher output_rect_pub_;
 
-        ros::Subscriber image_sub;
+        ros::Subscriber boxes_sub;
 
         boost::mutex mutex_;
 
@@ -96,9 +103,10 @@ namespace kcf_ros
 
         virtual void onInit();
 
+        virtual void boxes_callback(const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes);
+
         virtual void callback(const sensor_msgs::Image::ConstPtr& raw_image_msg,
-                              const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,
-                              const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes);
+                              const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg);
 
         /* virtual void image_callback(const sensor_msgs::Image::ConstPtr& raw_image_msg); */
 

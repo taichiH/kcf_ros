@@ -44,7 +44,11 @@ class TransformMsgsJsk2Autoware():
             detected_object.width = rect.width
             detected_object.height = rect.height
             detected_object.score = score
-            detected_object.label = label
+
+            if label == 'trafficlight':
+                detected_object.label = 'traffic light'
+            else:
+                detected_object.label = label
             detected_object_array.objects.append(detected_object)
 
         self.pub.publish(detected_object_array)

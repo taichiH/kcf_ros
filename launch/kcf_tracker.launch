@@ -1,7 +1,8 @@
 <launch>
   <arg name="input_raw_image" default="/image_raw" />
   <arg name="input_nearest_roi_rect" default="/feat_proj_bbox/nearest_roi_rect" />
-  <arg name="input_yolo_detected_boxes" default="/detection/image_detector/objects" />
+  <!-- <arg name="input_yolo_detected_boxes" default="/detection/image_detector/objects" /> -->
+  <arg name="input_yolo_detected_boxes" default="/transform_msgs_jsk2autoware/output" />
 
   <arg name="debug_log" default="true" />
   <arg name="debug_view" default="false" />
