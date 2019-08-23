@@ -5,11 +5,11 @@
   <arg name="input_yolo_detected_boxes" default="/transform_msgs_jsk2autoware/output" />
 
   <arg name="debug_log" default="true" />
-  <arg name="debug_view" default="false" />
-  <arg name="kernel_sigma" default="1" />
+  <arg name="debug_view" default="true" />
+  <arg name="kernel_sigma" default="0.5" />
   <arg name="cell_size" default="4" />
-  <arg name="num_scales" default="14" />
-  <arg name="offset" default="5" />
+  <arg name="num_scales" default="7" />
+  <arg name="offset" default="8" />
 
   <node name="kcf_tracker"
         pkg="nodelet" type="nodelet"

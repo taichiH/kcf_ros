@@ -77,6 +77,7 @@ namespace kcf_ros
 
         std::vector<double> image_stamps;
         std::vector<cv::Mat> image_buffer;
+        std::vector<cv::Rect> rect_buffer;
 
 
         std::vector<BBox_c> tracker_results_queue_;
@@ -111,15 +112,15 @@ namespace kcf_ros
         /* virtual void image_callback(const sensor_msgs::Image::ConstPtr& raw_image_msg); */
 
         virtual void visualize(cv::Mat& image,
-                               const BBox_c& bb,
-                               const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,
+                               const cv::Rect& rect,
+                               const cv::Rect& nearest_roi_rect,
                                double frames,
-                               float box_movement_ratio);
+                               float box_movement_ratio = 0);
 
         virtual void load_image(cv::Mat& image, const sensor_msgs::Image::ConstPtr& image_msg);
 
         virtual void publish_messages(const cv::Mat& image, const cv::Mat& croped_image,
-                                      const BBox_c& bb, bool changed);
+                                      const cv::Rect& rect, bool changed);
 
         virtual double calc_detection_score(const autoware_msgs::DetectedObject& box,
                                           const cv::Point2f& nearest_roi_image_center);
@@ -129,7 +130,7 @@ namespace kcf_ros
                                    const GaussianDistribution& ditribution);
 
         virtual bool boxesToBox(const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes,
-                                const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg,
+                                const cv::Rect& roi_rect,
                                 cv::Rect& output_box,
                                 float& score);
 
@@ -144,8 +145,17 @@ namespace kcf_ros
 
         virtual bool enqueue_tracking_results(const BBox_c& bb);
 
-    private:
+        virtual int get_min_index();
 
+        virtual bool box_interpolation(int min_index);
+
+        virtual bool create_buffer(const cv::Mat &image,
+                                   double image_stamp,
+                                   const cv::Rect &rect);
+
+        virtual bool update_tracker(cv::Mat& image, cv::Rect& output_rect);
+
+    private:
     }; // class KcfTrackerROS
 
 } // namespace kcf_ros
