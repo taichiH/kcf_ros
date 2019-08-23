@@ -56,6 +56,10 @@ namespace kcf_ros
             sync_->registerCallback(boost::bind
                                     (&KcfTrackerROS::callback, this, _1, _2));
         }
+
+        while (ros::ok()) {
+            run();
+        }
     }
 
     void KcfTrackerROS::visualize(cv::Mat& image,
@@ -362,12 +366,6 @@ namespace kcf_ros
         }
     }
 
-    void KcfTrackerROS::boxes_callback(const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes){
-        boost::mutex::scoped_lock lock(mutex_);
-        detected_boxes_ = detected_boxes;
-        detected_boxes_stamp_ = detected_boxes_->header.stamp.toSec();
-        boxes_callback_cnt_++;
-    }
 
     int KcfTrackerROS::get_min_index(){
         int min_index = 0;
@@ -392,13 +390,6 @@ namespace kcf_ros
             double tracking_time = ros::Time::now().toSec() - start_time;
             if (debug_log_)
                 ROS_INFO("tracking time: %.2lf [ms]", tracking_time * 1000);
-
-            // double time_profile_counter = cv::getCPUTickCount();
-            // tracker.track(image);
-            // time_profile_counter = cv::getCPUTickCount() - time_profile_counter;
-            // if (debug_log_)
-            //     ROS_INFO("speed: %.2f [ms]", time_profile_counter/((double)cvGetTickFrequency()*1000));
-
             BBox_c bb = tracker.getBBox();
             // ROS_WARN("bb: (%f, %f, %f, %f)", bb.cx, bb.cy, bb.w, bb.h);
 
@@ -477,64 +468,102 @@ namespace kcf_ros
         return true;
     }
 
+    bool KcfTrackerROS::create_buffer(const ImageInfo& image_info){
+        if (image_stamps.size() >= buffer_size_) {
+            image_stamps.erase(image_stamps.begin());
+            image_buffer.erase(image_buffer.begin());
+            rect_buffer.erase(rect_buffer.begin());
+        }
+        image_stamps.push_back(image_info.stamp);
+        image_buffer.push_back(image_info.image);
+        rect_buffer.push_back(image_info.rect);
+        return true;
+    }
+
+    void KcfTrackerROS::increment_cnt() {
+        prev_signal_ = signal_;
+        prev_boxes_callback_cnt_ = boxes_callback_cnt_;
+        prev_image_callback_cnt_ = image_callback_cnt_;
+        cnt_++;
+    }
+
+
+    void KcfTrackerROS::boxes_callback(const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes){
+        boost::mutex::scoped_lock lock(boxes_callback_mutex_);
+        detected_boxes_ = detected_boxes;
+        detected_boxes_stamp_ = detected_boxes_->header.stamp.toSec();
+        boxes_callback_cnt_++;
+    }
+
+
     void KcfTrackerROS::callback(const sensor_msgs::Image::ConstPtr& raw_image_msg,
                                  const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg)
     {
-        boost::mutex::scoped_lock lock(mutex_);
+        boost::mutex::scoped_lock lock(image_callback_mutex_);
 
-        double start_frame = 0.0;
+        std::cerr << "callback" << std::endl;
+        load_image(image_info_.image, raw_image_msg);
 
-        if (cnt == 0) {
+        image_info_.stamp = raw_image_msg->header.stamp.toSec();
+        image_info_.rect = cv::Rect(nearest_roi_rect_msg->x,
+                                    nearest_roi_rect_msg->y,
+                                    nearest_roi_rect_msg->width,
+                                    nearest_roi_rect_msg->height);
+        image_info_.signal = nearest_roi_rect_msg->signal;
+        image_callback_cnt_++;
+    }
+
+    void KcfTrackerROS::run() {
+        std::cerr << "------------------" << std::endl;
+        if (cnt_ == 0)
             cv::namedWindow("output", CV_WINDOW_NORMAL);
-            start_frame = raw_image_msg->header.stamp.toSec();
-        }
-        double frame = raw_image_msg->header.stamp.toSec() - start_frame;
 
-        std::cerr << "------------------" << __func__ << std::endl;
-        std::cerr << "callback cnt: " << cnt << std::endl;
+        std::cerr << 0 << std::endl;
         cv::Mat image;
-        load_image(image, raw_image_msg);
-        create_buffer(image,
-                      raw_image_msg->header.stamp.toSec(),
-                      cv::Rect(nearest_roi_rect_msg->x,
-                               nearest_roi_rect_msg->y,
-                               nearest_roi_rect_msg->width,
-                               nearest_roi_rect_msg->height));
+        cv::Rect rect;
+        {
+            boost::mutex::scoped_lock lock(image_callback_mutex_);
+            image = image_info_.image;
+            rect = image_info_.rect;
+            signal_ = image_info_.signal;
+            create_buffer(image_info_);
+        }
 
         float nearest_stamp = 0;
         if (boxes_callback_cnt_ != prev_boxes_callback_cnt_) {
-            int min_index = get_min_index();;
-            ROS_INFO("start box interpolate");
+            std::cerr << 1 << std::endl;
+            boost::mutex::scoped_lock lock(boxes_callback_mutex_);
+            int min_index = get_min_index();
+
             double start_time = ros::Time::now().toSec();
-            if (!box_interpolation(min_index)) {
-                prev_signal_ = nearest_roi_rect_msg->signal;
-                prev_boxes_callback_cnt_ = boxes_callback_cnt_;
-                cnt++;
+            if (!box_interpolation(min_index)){
+                increment_cnt();
                 return;
             }
-
             double total_time = ros::Time::now().toSec() - start_time;
+
             if (debug_log_)
-                ROS_INFO("interpolation total time: %.2lf [ms]",
-                         total_time * 1000);
+                ROS_INFO("interpolation total time: %.2lf [ms]", total_time * 1000);
 
         } else if (prev_boxes_callback_cnt_ == 0) {
+            std::cerr << 2 << std::endl;
+            ros::spinOnce();
+            ros::Rate loop_rate(50);
+            loop_rate.sleep();
+            return;
         } else {
+            std::cerr << 3 << std::endl;
             cv::Rect output_rect;
             update_tracker(image, output_rect);
-            visualize(image,
-                      output_rect,
-                      cv::Rect(nearest_roi_rect_msg->x,
-                               nearest_roi_rect_msg->y,
-                               nearest_roi_rect_msg->width,
-                               nearest_roi_rect_msg->height),
-                      frame);
+            visualize(image, output_rect, rect, 0);
         }
 
-        prev_signal_ = nearest_roi_rect_msg->signal;
-        prev_boxes_callback_cnt_ = boxes_callback_cnt_;
-        cnt++;
+        increment_cnt();
+        ros::spinOnce();
+        ros::Rate loop_rate(1);
+        loop_rate.sleep();
     }
+
 } // namespace kcf_ros
 
 #include <pluginlib/class_list_macros.h>

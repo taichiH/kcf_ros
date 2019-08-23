@@ -31,6 +31,14 @@ namespace kcf_ros
         double cov_det_sqrt = std::sqrt(cov.determinant());
     };
 
+    class ImageInfo {
+    public:
+        double stamp = 0.0;
+        cv::Mat image;
+        cv::Rect rect;
+        int signal;
+    };
+
     class KcfTrackerROS : public nodelet::Nodelet
     {
     public:
@@ -47,7 +55,7 @@ namespace kcf_ros
         double pi = 3.141592653589793;
 
         int frames = 0;
-        int cnt = 0;
+
         int callback_count_ = 0;
         bool debug_log_ = false;
         bool debug_view_ = false;
@@ -68,12 +76,20 @@ namespace kcf_ros
         int raw_image_width_ = 0;
         int raw_image_height_ = 0;
 
+        int cnt_ = 0;
+        int image_callback_cnt_ = 0;
         int boxes_callback_cnt_ = 0;
+        int prev_image_callback_cnt_ = 0;
         int prev_boxes_callback_cnt_ = 0;
+
+        double image_stamp_ = 0.0;
         double detected_boxes_stamp_ = 0.0;
         int buffer_size_ = 100;
 
+        int signal_ = 0;
+
         KCF_Tracker tracker;
+        ImageInfo image_info_;
         autoware_msgs::DetectedObjectArray::ConstPtr detected_boxes_;
 
         std::vector<double> image_stamps;
@@ -95,7 +111,8 @@ namespace kcf_ros
 
         ros::Subscriber boxes_sub;
 
-        boost::mutex mutex_;
+        boost::mutex image_callback_mutex_;
+        boost::mutex boxes_callback_mutex_;
 
         boost::shared_ptr<message_filters::Synchronizer<SyncPolicy> > sync_;
         boost::shared_ptr<message_filters::Synchronizer<ApproximateSyncPolicy> > approximate_sync_;
@@ -104,6 +121,8 @@ namespace kcf_ros
         message_filters::Subscriber<autoware_msgs::DetectedObjectArray> sub_yolo_detected_boxes_;
 
         virtual void onInit();
+
+        virtual void run();
 
         virtual void boxes_callback(const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes);
 
@@ -154,7 +173,12 @@ namespace kcf_ros
                                    double image_stamp,
                                    const cv::Rect &rect);
 
+        virtual bool create_buffer(const ImageInfo& image_info);
+
+
         virtual bool update_tracker(cv::Mat& image, cv::Rect& output_rect);
+
+        virtual void increment_cnt();
 
     private:
     }; // class KcfTrackerROS
