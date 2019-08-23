@@ -47,6 +47,7 @@ namespace kcf_ros
         double pi = 3.141592653589793;
 
         int frames = 0;
+        int cnt = 0;
         int callback_count_ = 0;
         bool debug_log_ = false;
         bool debug_view_ = false;
