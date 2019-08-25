@@ -20,6 +20,8 @@
 
 #include "kcf.h"
 
+
+
 namespace kcf_ros
 {
     class GaussianDistribution{
@@ -76,6 +78,8 @@ namespace kcf_ros
             kcf_ros::Rect
             > ApproximateSyncPolicy;
 
+        typedef std::shared_ptr<ImageInfo> ImageInfoPtr;
+
     protected:
         double pi = 3.141592653589793;
 
@@ -88,6 +92,7 @@ namespace kcf_ros
         double cell_size_ = 4;
         double num_scales_ = 7;
         bool is_approximate_sync_ = true;
+        int interpolation_frequency_ = 1;
         bool tracker_initialized_ = false;
         bool signal_changed_ = false;
         bool first_init_ = true;
@@ -109,7 +114,8 @@ namespace kcf_ros
         int buffer_size_ = 100;
 
         KCF_Tracker tracker;
-        ImageInfo image_info_;
+        /* ImageInfo image_info_; */
+
         autoware_msgs::DetectedObjectArray::ConstPtr detected_boxes_;
 
         std::vector<double> image_stamps;
@@ -148,7 +154,7 @@ namespace kcf_ros
 
         /* virtual void image_callback(const sensor_msgs::Image::ConstPtr& raw_image_msg); */
 
-        virtual bool create_buffer(const ImageInfo& image_info);
+
 
         virtual void visualize(cv::Mat& image,
                                const cv::Rect& rect,
@@ -188,6 +194,8 @@ namespace kcf_ros
 
         virtual bool box_interpolation(int min_index);
 
+        virtual bool create_buffer(const ImageInfoPtr& image_info);
+
         virtual bool create_buffer(const cv::Mat &image,
                                    double image_stamp,
                                    const cv::Rect &rect);
@@ -198,6 +206,8 @@ namespace kcf_ros
 
     private:
     }; // class KcfTrackerROS
+
+
 
 } // namespace kcf_ros
 

@@ -14,21 +14,15 @@ namespace kcf_ros
         pnh_.getParam("cell_size", cell_size_);
         pnh_.getParam("num_scales", num_scales_);
         pnh_.getParam("approximate_sync", is_approximate_sync_);
+        pnh_.getParam("interpolation_frequency", interpolation_frequency_);
         pnh_.getParam("offset", offset_);
 
         if (debug_log_) {
             std::cout << "kernel_sigma: " << kernel_sigma_ << std::endl;
             std::cout << "cell_size: " << cell_size_ << std::endl;
             std::cout << "num_scales: " << num_scales_ << std::endl;
+            std::cout << "interpolation frequency: " << interpolation_frequency_ << std::endl;
         }
-
-        if (debug_view_) {
-            // cv::namedWindow("output", CV_WINDOW_NORMAL);
-            // cv::namedWindow("interpolation", CV_WINDOW_NORMAL);
-            // cv::namedWindow("debug", CV_WINDOW_NORMAL);
-
-        }
-
 
         debug_image_pub_ = pnh_.advertise<sensor_msgs::Image>("output_image", 1);
         croped_image_pub_ = pnh_.advertise<sensor_msgs::Image>("output_croped_image", 1);
@@ -36,7 +30,6 @@ namespace kcf_ros
 
         boxes_sub =
             pnh_.subscribe("input_yolo_detected_boxes", 1, &KcfTrackerROS::boxes_callback, this);
-
 
         sub_raw_image_.subscribe(pnh_, "input_raw_image", 1);
         sub_nearest_roi_rect_.subscribe(pnh_, "input_nearest_roi_rect", 1);
@@ -79,17 +72,18 @@ namespace kcf_ros
         cv::putText(image, "box_movement_ratio: " + std::to_string(box_movement_ratio),
                     cv::Point(50, 250), cv::FONT_HERSHEY_SIMPLEX, 0.8,
                     cv::Scalar(0, 255, 0), 1, CV_AA);
+        cv::putText(image, "interpolation freq: " + std::to_string(interpolation_frequency_),
+                    cv::Point(50, 300), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+                    cv::Scalar(0, 255, 0), 1, CV_AA);
 
         cv::rectangle(image, rect, CV_RGB(0,255,0), 2);
-
         cv::rectangle(image, cv::Rect(nearest_roi_rect.x, nearest_roi_rect.y,
                                       nearest_roi_rect.width, nearest_roi_rect.height),
                       CV_RGB(255,0,0), 2);
 
         if (debug_view_){
-            // cv::namedWindow("output", CV_WINDOW_NORMAL);
             cv::imshow("output", image);
-            cv::waitKey(10);
+            cv::waitKey(5);
         }
     }
 
@@ -390,14 +384,9 @@ namespace kcf_ros
             double start_time = ros::Time::now().toSec();
             tracker.track(image);
             double tracking_time = ros::Time::now().toSec() - start_time;
-            if (debug_log_)
-                ROS_INFO("tracking time: %.2lf [ms]", tracking_time * 1000);
 
-            // double time_profile_counter = cv::getCPUTickCount();
-            // tracker.track(image);
-            // time_profile_counter = cv::getCPUTickCount() - time_profile_counter;
             // if (debug_log_)
-            //     ROS_INFO("speed: %.2f [ms]", time_profile_counter/((double)cvGetTickFrequency()*1000));
+                // ROS_INFO("tracking time: %.2lf [ms]", tracking_time * 1000);
 
             BBox_c bb = tracker.getBBox();
             // ROS_WARN("bb: (%f, %f, %f, %f)", bb.cx, bb.cy, bb.w, bb.h);
@@ -420,10 +409,12 @@ namespace kcf_ros
     }
 
     bool KcfTrackerROS::box_interpolation(int min_index){
-        ROS_INFO("buffer_size: %d", image_buffer.size() - min_index - 1);
+        ROS_INFO("buffer_size: %d, freq: %d, calc size: %d",
+                 image_buffer.size() - min_index - 1,
+                 interpolation_frequency_,
+                 int((image_buffer.size() - min_index - 1) / interpolation_frequency_));
 
-        for (int i=min_index; i<image_buffer.size(); i++) {
-
+        for (int i=min_index; i<image_buffer.size(); i+=interpolation_frequency_) {
             if (i == min_index) {
                 cv::Mat debug_image = image_buffer.at(i).clone();
                 cv::Rect box_on_nearest_roi_image;
@@ -434,14 +425,14 @@ namespace kcf_ros
                                                    box_on_nearest_roi_image.width + offset_ * 2,
                                                    box_on_nearest_roi_image.height + offset_ * 2);
                     if (debug_view_) {
-                        cv::rectangle(debug_image, init_box_on_raw_image, CV_RGB(0,0,255), 4);
-                        cv::rectangle(debug_image,
-                                      cv::Rect(rect_buffer.at(i).x, rect_buffer.at(i).y,
-                                               rect_buffer.at(i).width, rect_buffer.at(i).height),
-                                      CV_RGB(255,0,0), 2);
+                        // cv::rectangle(debug_image, init_box_on_raw_image, CV_RGB(0,0,255), 4);
+                        // cv::rectangle(debug_image,
+                        //               cv::Rect(rect_buffer.at(i).x, rect_buffer.at(i).y,
+                        //                        rect_buffer.at(i).width, rect_buffer.at(i).height),
+                        //               CV_RGB(255,0,0), 2);
 
-                        cv::imshow("output", debug_image);
-                        cv::waitKey(10);
+                        // cv::imshow("output", debug_image);
+                        // cv::waitKey(10);
                     }
                     try {
                         tracker.init(image_buffer.at(i), init_box_on_raw_image);
@@ -463,18 +454,17 @@ namespace kcf_ros
         return true;
     }
 
-    bool KcfTrackerROS::create_buffer(const ImageInfo& image_info){
+    bool KcfTrackerROS::create_buffer(const ImageInfoPtr& image_info){
         if (image_stamps.size() >= buffer_size_) {
             image_stamps.erase(image_stamps.begin());
             image_buffer.erase(image_buffer.begin());
             rect_buffer.erase(rect_buffer.begin());
         }
-        image_stamps.push_back(image_info.stamp);
-        image_buffer.push_back(image_info.image);
-        rect_buffer.push_back(image_info.rect);
+        image_stamps.push_back(image_info->stamp);
+        image_buffer.push_back(image_info->image);
+        rect_buffer.push_back(image_info->rect);
         return true;
     }
-
 
     bool KcfTrackerROS::create_buffer(const cv::Mat &image,
                                       double image_stamp,
@@ -507,43 +497,39 @@ namespace kcf_ros
 
         cv::Mat image;
         load_image(image, raw_image_msg);
-        image_info_.init(image,
-                         cv::Rect(nearest_roi_rect_msg->x,
-                                  nearest_roi_rect_msg->y,
-                                  nearest_roi_rect_msg->width,
-                                  nearest_roi_rect_msg->height),
-                         nearest_roi_rect_msg->signal,
-                         raw_image_msg->header.stamp.toSec());
-
-        cv::Rect rect = image_info_.rect;
-        signal_ = image_info_.signal;
-        create_buffer(image_info_);
+        ImageInfoPtr image_info(new ImageInfo(image,
+                                              cv::Rect(nearest_roi_rect_msg->x,
+                                                       nearest_roi_rect_msg->y,
+                                                       nearest_roi_rect_msg->width,
+                                                       nearest_roi_rect_msg->height),
+                                              nearest_roi_rect_msg->signal,
+                                              raw_image_msg->header.stamp.toSec()));
+        signal_ = nearest_roi_rect_msg->signal;
+        create_buffer(image_info);
+ 
+       // std::cerr << "signal_: " << signal_ << std::endl;
 
         float nearest_stamp = 0;
         if (boxes_callback_cnt_ != prev_boxes_callback_cnt_) {
-            int min_index = get_min_index();;
-            ROS_INFO("start box interpolate");
             double start_time = ros::Time::now().toSec();
-            if (!box_interpolation(min_index)) {
+            if (!box_interpolation(get_min_index())) {
                 increment_cnt();
                 return;
             }
-
             double total_time = ros::Time::now().toSec() - start_time;
             if (debug_log_)
-                ROS_INFO("interpolation total time: %.2lf [ms]",
-                         total_time * 1000);
-
+                ROS_INFO("interpolation total time: %.2lf [ms]", total_time * 1000);
         } else if (prev_boxes_callback_cnt_ == 0) {
+            increment_cnt();
+            return;
         } else {
             cv::Rect output_rect;
             if (!update_tracker(image, output_rect)) {
                 increment_cnt();
                 return;
             }
-            visualize(image, output_rect, rect, raw_image_msg->header.stamp.toSec());
+            visualize(image, output_rect, image_info->rect, raw_image_msg->header.stamp.toSec());
         }
-
         increment_cnt();
     }
 } // namespace kcf_ros
