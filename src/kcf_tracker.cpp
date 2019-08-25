@@ -363,10 +363,12 @@ namespace kcf_ros
         boxes_callback_cnt_++;
     }
 
-    int KcfTrackerROS::get_min_index(){
-        int min_index = 0;
+    bool KcfTrackerROS::get_min_index(int& min_index){
+        min_index = 0;
+        bool found_min_index = false;
         for (int i=image_stamps.size() - 1; i>0; i--) {
             if (image_stamps.at(i) - detected_boxes_stamp_ < 0) {
+                found_min_index = true;
                 if (std::abs(image_stamps.at(i+1) - detected_boxes_stamp_) <
                     std::abs(image_stamps.at(i) - detected_boxes_stamp_)){
                     min_index = i+1;
@@ -376,7 +378,7 @@ namespace kcf_ros
                 break;
             }
         }
-        return min_index;
+        return found_min_index;
     }
 
     bool KcfTrackerROS::update_tracker(cv::Mat& image, cv::Rect& output_rect) {
@@ -455,29 +457,32 @@ namespace kcf_ros
     }
 
     bool KcfTrackerROS::create_buffer(const ImageInfoPtr& image_info){
-        if (image_stamps.size() >= buffer_size_) {
-            image_stamps.erase(image_stamps.begin());
-            image_buffer.erase(image_buffer.begin());
-            rect_buffer.erase(rect_buffer.begin());
+        try {
+            if (image_stamps.size() >= buffer_size_) {
+                image_stamps.erase(image_stamps.begin());
+                image_buffer.erase(image_buffer.begin());
+                rect_buffer.erase(rect_buffer.begin());
+            }
+            image_stamps.push_back(image_info->stamp);
+            image_buffer.push_back(image_info->image);
+            rect_buffer.push_back(image_info->rect);
+            return true;
+        } catch (...) {
+            ROS_ERROR("failed stack image_info buffer");
+            return false;
         }
-        image_stamps.push_back(image_info->stamp);
-        image_buffer.push_back(image_info->image);
-        rect_buffer.push_back(image_info->rect);
-        return true;
     }
 
-    bool KcfTrackerROS::create_buffer(const cv::Mat &image,
-                                      double image_stamp,
-                                      const cv::Rect &rect){
-        if (image_stamps.size() >= buffer_size_) {
-            image_stamps.erase(image_stamps.begin());
-            image_buffer.erase(image_buffer.begin());
-            rect_buffer.erase(rect_buffer.begin());
+    bool KcfTrackerROS::clear_buffer() {
+        try {
+            image_stamps.clear();
+            image_buffer.clear();
+            rect_buffer.clear();
+            return true;
+        } catch (...) {
+            ROS_ERROR("failed clear image_info buffer");
+            return false;
         }
-        image_stamps.push_back(image_stamp);
-        image_buffer.push_back(image);
-        rect_buffer.push_back(rect);
-        return true;
     }
 
     void KcfTrackerROS::increment_cnt() {
@@ -505,14 +510,27 @@ namespace kcf_ros
                                               nearest_roi_rect_msg->signal,
                                               raw_image_msg->header.stamp.toSec()));
         signal_ = nearest_roi_rect_msg->signal;
-        create_buffer(image_info);
- 
-       // std::cerr << "signal_: " << signal_ << std::endl;
+        signal_changed_ = signal_ != prev_signal_;
+
+        std::cerr << "signal: " << signal_ << ", prev_signal: " << prev_signal_ << std::endl;
+        if (signal_changed_) {
+            clear_buffer();
+            increment_cnt();
+            return;
+        } else {
+            create_buffer(image_info);
+        }
+
 
         float nearest_stamp = 0;
         if (boxes_callback_cnt_ != prev_boxes_callback_cnt_) {
             double start_time = ros::Time::now().toSec();
-            if (!box_interpolation(get_min_index())) {
+            int min_index = 0;
+            if (!get_min_index(min_index)) {
+                // track_flag_ = false;
+            }
+
+            if (!box_interpolation(min_index)) {
                 increment_cnt();
                 return;
             }

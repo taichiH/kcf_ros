@@ -190,15 +190,13 @@ namespace kcf_ros
 
         virtual bool enqueue_tracking_results(const BBox_c& bb);
 
-        virtual int get_min_index();
+        virtual bool get_min_index(int& min_index);
 
         virtual bool box_interpolation(int min_index);
 
         virtual bool create_buffer(const ImageInfoPtr& image_info);
 
-        virtual bool create_buffer(const cv::Mat &image,
-                                   double image_stamp,
-                                   const cv::Rect &rect);
+        virtual bool clear_buffer();
 
         virtual bool update_tracker(cv::Mat& image, cv::Rect& output_rect);
 
