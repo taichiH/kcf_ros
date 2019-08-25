@@ -34,9 +34,34 @@ namespace kcf_ros
     class ImageInfo {
     public:
         double stamp = 0.0;
+        int signal = 0;
         cv::Mat image;
         cv::Rect rect;
-        int signal;
+
+        bool initialized = false;
+
+        explicit ImageInfo(const cv::Mat& _image = cv::Mat(3,3,CV_8UC3),
+                           const cv::Rect& _rect= cv::Rect(0,0,0,0),
+                           const int _signal = 0,
+                           const double _stamp = 0.0) {
+            stamp = _stamp;
+            signal = _signal;
+            image = _image;
+            rect = _rect;
+        }
+        ~ImageInfo() {};
+
+        void init(const cv::Mat& _image = cv::Mat(3,3,CV_8UC3),
+                  const cv::Rect& _rect= cv::Rect(0,0,0,0),
+                  const int _signal = 0,
+                  const double _stamp = 0.0) {
+            initialized = true;
+            stamp = _stamp;
+            signal = _signal;
+            image = _image;
+            rect = _rect;
+        }
+
     };
 
     class KcfTrackerROS : public nodelet::Nodelet

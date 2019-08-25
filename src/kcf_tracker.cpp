@@ -490,6 +490,7 @@ namespace kcf_ros
 
     void KcfTrackerROS::boxes_callback(const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes){
         boost::mutex::scoped_lock lock(boxes_callback_mutex_);
+        // boost::mutex::scoped_lock lock(image_callback_mutex_);
         detected_boxes_ = detected_boxes;
         detected_boxes_stamp_ = detected_boxes_->header.stamp.toSec();
         boxes_callback_cnt_++;
@@ -499,40 +500,46 @@ namespace kcf_ros
     void KcfTrackerROS::callback(const sensor_msgs::Image::ConstPtr& raw_image_msg,
                                  const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg)
     {
-        boost::mutex::scoped_lock lock(image_callback_mutex_);
+        // boost::mutex::scoped_lock lock(image_callback_mutex_);
 
         std::cerr << "callback" << std::endl;
-        load_image(image_info_.image, raw_image_msg);
+        cv::Mat image;
+        load_image(image, raw_image_msg);
+        image_info_.init(image,
+                         cv::Rect(nearest_roi_rect_msg->x, nearest_roi_rect_msg->y,
+                                  nearest_roi_rect_msg->width, nearest_roi_rect_msg->height),
+                         nearest_roi_rect_msg->signal,
+                         raw_image_msg->header.stamp.toSec());
 
-        image_info_.stamp = raw_image_msg->header.stamp.toSec();
-        image_info_.rect = cv::Rect(nearest_roi_rect_msg->x,
-                                    nearest_roi_rect_msg->y,
-                                    nearest_roi_rect_msg->width,
-                                    nearest_roi_rect_msg->height);
-        image_info_.signal = nearest_roi_rect_msg->signal;
         image_callback_cnt_++;
     }
 
     void KcfTrackerROS::run() {
-        std::cerr << "------------------" << std::endl;
+        boost::mutex::scoped_lock lock(boxes_callback_mutex_);
+
+        std::cerr << "------------------ " << cnt_ << std::endl;
+        std::cerr << boxes_callback_cnt_ << ", " << prev_boxes_callback_cnt_ << std::endl;
         if (cnt_ == 0)
             cv::namedWindow("output", CV_WINDOW_NORMAL);
 
-        std::cerr << 0 << std::endl;
-        cv::Mat image;
-        cv::Rect rect;
-        {
-            boost::mutex::scoped_lock lock(image_callback_mutex_);
-            image = image_info_.image;
-            rect = image_info_.rect;
-            signal_ = image_info_.signal;
-            create_buffer(image_info_);
+        if (!image_info_.initialized) {
+            ros::spinOnce();
+            ros::Rate loop_rate(50);
+            loop_rate.sleep();
+
+            increment_cnt();
+            return;
         }
+
+        cv::Mat image = image_info_.image;
+        cv::Rect rect = image_info_.rect;
+        signal_ = image_info_.signal;
+        create_buffer(image_info_);
 
         float nearest_stamp = 0;
         if (boxes_callback_cnt_ != prev_boxes_callback_cnt_) {
             std::cerr << 1 << std::endl;
-            boost::mutex::scoped_lock lock(boxes_callback_mutex_);
+            // boost::mutex::scoped_lock lock(boxes_callback_mutex_);
             int min_index = get_min_index();
 
             double start_time = ros::Time::now().toSec();
@@ -550,11 +557,15 @@ namespace kcf_ros
             ros::spinOnce();
             ros::Rate loop_rate(50);
             loop_rate.sleep();
+            increment_cnt();
             return;
         } else {
             std::cerr << 3 << std::endl;
             cv::Rect output_rect;
-            update_tracker(image, output_rect);
+            if (!update_tracker(image, output_rect)) {
+                increment_cnt();
+                return;
+            }
             visualize(image, output_rect, rect, 0);
         }
 
