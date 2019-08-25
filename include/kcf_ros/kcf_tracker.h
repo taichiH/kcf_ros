@@ -31,6 +31,39 @@ namespace kcf_ros
         double cov_det_sqrt = std::sqrt(cov.determinant());
     };
 
+    class ImageInfo {
+    public:
+      double stamp = 0.0;
+      int signal = 0;
+      cv::Mat image;
+      cv::Rect rect;
+
+      bool initialized = false;
+
+      explicit ImageInfo(const cv::Mat& _image = cv::Mat(3,3,CV_8UC3),
+                         const cv::Rect& _rect= cv::Rect(0,0,0,0),
+                         const int _signal = 0,
+                         const double _stamp = 0.0) {
+          stamp = _stamp;
+          signal = _signal;
+          image = _image;
+          rect = _rect;
+      }
+      ~ImageInfo() {};
+
+      void init(const cv::Mat& _image = cv::Mat(3,3,CV_8UC3),
+                const cv::Rect& _rect= cv::Rect(0,0,0,0),
+                const int _signal = 0,
+                const double _stamp = 0.0) {
+          initialized = true;
+          stamp = _stamp;
+          signal = _signal;
+          image = _image;
+          rect = _rect;
+      }
+
+    };
+
     class KcfTrackerROS : public nodelet::Nodelet
     {
     public:
@@ -47,7 +80,7 @@ namespace kcf_ros
         double pi = 3.141592653589793;
 
         int frames = 0;
-        int cnt = 0;
+
         int callback_count_ = 0;
         bool debug_log_ = false;
         bool debug_view_ = false;
@@ -59,6 +92,7 @@ namespace kcf_ros
         bool signal_changed_ = false;
         bool first_init_ = true;
         bool track_flag_ = false;
+        int signal_ = 0;
         int prev_signal_ = 0;
         int non_detected_count_ = 0;
         int offset_ = 0;
@@ -68,12 +102,14 @@ namespace kcf_ros
         int raw_image_width_ = 0;
         int raw_image_height_ = 0;
 
+        int cnt_ = 0;
         int boxes_callback_cnt_ = 0;
         int prev_boxes_callback_cnt_ = 0;
         double detected_boxes_stamp_ = 0.0;
         int buffer_size_ = 100;
 
         KCF_Tracker tracker;
+        ImageInfo image_info_;
         autoware_msgs::DetectedObjectArray::ConstPtr detected_boxes_;
 
         std::vector<double> image_stamps;
@@ -111,6 +147,8 @@ namespace kcf_ros
                               const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg);
 
         /* virtual void image_callback(const sensor_msgs::Image::ConstPtr& raw_image_msg); */
+
+        virtual bool create_buffer(const ImageInfo& image_info);
 
         virtual void visualize(cv::Mat& image,
                                const cv::Rect& rect,
@@ -155,6 +193,8 @@ namespace kcf_ros
                                    const cv::Rect &rect);
 
         virtual bool update_tracker(cv::Mat& image, cv::Rect& output_rect);
+
+        virtual void increment_cnt();
 
     private:
     }; // class KcfTrackerROS
