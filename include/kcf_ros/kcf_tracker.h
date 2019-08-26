@@ -200,7 +200,11 @@ namespace kcf_ros
 
         virtual bool update_tracker(cv::Mat& image, cv::Rect& output_rect);
 
+        virtual bool update_tracker(cv::Mat& image, cv::Rect& output_rect, const cv::Rect& roi_rect);
+
         virtual void increment_cnt();
+
+        virtual int calc_offset(int x);
 
     private:
     }; // class KcfTrackerROS

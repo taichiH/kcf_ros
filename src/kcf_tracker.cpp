@@ -75,6 +75,9 @@ namespace kcf_ros
         cv::putText(image, "interpolation freq: " + std::to_string(interpolation_frequency_),
                     cv::Point(50, 300), cv::FONT_HERSHEY_SIMPLEX, 0.8,
                     cv::Scalar(0, 255, 0), 1, CV_AA);
+        cv::putText(image, "offset: " + std::to_string(offset_),
+                    cv::Point(50, 350), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+                    cv::Scalar(0, 255, 0), 1, CV_AA);
 
         cv::rectangle(image, rect, CV_RGB(0,255,0), 2);
         cv::rectangle(image, cv::Rect(nearest_roi_rect.x, nearest_roi_rect.y,
@@ -410,6 +413,45 @@ namespace kcf_ros
         return true;
     }
 
+    bool KcfTrackerROS::update_tracker(cv::Mat& image, cv::Rect& output_rect, const cv::Rect& roi_rect) {
+        try {
+            double start_time = ros::Time::now().toSec();
+            tracker.track(image);
+            double tracking_time = ros::Time::now().toSec() - start_time;
+
+            // if (debug_log_)
+                // ROS_INFO("tracking time: %.2lf [ms]", tracking_time * 1000);
+
+            BBox_c bb = tracker.getBBox();
+            // ROS_WARN("bb: (%f, %f, %f, %f)", bb.cx, bb.cy, bb.w, bb.h);
+
+            cv::Point lt(bb.cx - bb.w * 0.5, bb.cy - bb.h * 0.5);
+            cv::Point rb(bb.cx + bb.w * 0.5, bb.cy + bb.h * 0.5);
+            if (rb.x > image.cols) rb.x = image.cols;
+            if (rb.y > image.rows) rb.y = image.rows;
+            if (lt.x < 0)  lt.x = 0;
+            if (lt.y < 0) lt.y = 0;
+            int width = rb.x - lt.x;
+            int height = rb.y - lt.y;
+            output_rect = cv::Rect(lt.x, lt.y, width, height);
+
+            // tracked rect is outside of roi_rect
+            if (bb.cx < roi_rect.x ||
+                bb.cy < roi_rect.y ||
+                bb.cx > roi_rect.x + roi_rect.width ||
+                bb.cy > roi_rect.y + roi_rect.height) {
+                return false;
+            }
+
+        } catch (...) {
+            ROS_ERROR("failed tracker update ");
+            return false;
+        }
+
+        return true;
+    }
+
+
     bool KcfTrackerROS::box_interpolation(int min_index){
         ROS_INFO("buffer_size: %d, freq: %d, calc size: %d",
                  image_buffer.size() - min_index - 1,
@@ -426,16 +468,6 @@ namespace kcf_ros
                                                    box_on_nearest_roi_image.y + rect_buffer.at(i).y - offset_,
                                                    box_on_nearest_roi_image.width + offset_ * 2,
                                                    box_on_nearest_roi_image.height + offset_ * 2);
-                    if (debug_view_) {
-                        // cv::rectangle(debug_image, init_box_on_raw_image, CV_RGB(0,0,255), 4);
-                        // cv::rectangle(debug_image,
-                        //               cv::Rect(rect_buffer.at(i).x, rect_buffer.at(i).y,
-                        //                        rect_buffer.at(i).width, rect_buffer.at(i).height),
-                        //               CV_RGB(255,0,0), 2);
-
-                        // cv::imshow("output", debug_image);
-                        // cv::waitKey(10);
-                    }
                     try {
                         tracker.init(image_buffer.at(i), init_box_on_raw_image);
                     } catch (...) {
@@ -448,7 +480,7 @@ namespace kcf_ros
                 }
             } else {
                 cv::Rect output_rect;
-                if (!update_tracker(image_buffer.at(i), output_rect))
+                if (!update_tracker(image_buffer.at(i), output_rect, rect_buffer.at(i)))
                     return false;
                 // visualize(image_buffer.at(i), output_rect, rect_buffer.at(i), frames);
             }
@@ -491,14 +523,22 @@ namespace kcf_ros
         cnt_++;
     }
 
+    int KcfTrackerROS::calc_offset(int x) {
+        int offset = int((9.0 / 110.0) * x - (340.0 / 110.0));
+        if (offset < 0) offset = 0;
+        return offset;
+    }
+
     void KcfTrackerROS::callback(const sensor_msgs::Image::ConstPtr& raw_image_msg,
                                  const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg)
     {
         boost::mutex::scoped_lock lock(mutex_);
         std::cerr << "------------------" << __func__ << std::endl;
 
-        if (cnt_ == 0)
+        if (cnt_ == 0) {
             cv::namedWindow("output", CV_WINDOW_NORMAL);
+            cv::resizeWindow("output", 1400, 1000);
+        }
 
         cv::Mat image;
         load_image(image, raw_image_msg);
@@ -512,13 +552,21 @@ namespace kcf_ros
         signal_ = nearest_roi_rect_msg->signal;
         signal_changed_ = signal_ != prev_signal_;
 
+        offset_ = calc_offset(nearest_roi_rect_msg->height);
+
+        std::cerr << "nearest_roi size: " << nearest_roi_rect_msg->width << ", " << nearest_roi_rect_msg->height << std::endl;
         std::cerr << "signal: " << signal_ << ", prev_signal: " << prev_signal_ << std::endl;
+
+
         if (signal_changed_) {
             clear_buffer();
             increment_cnt();
+            track_flag_ = false;
+            tracker_initialized_ = false;
             return;
         } else {
             create_buffer(image_info);
+            track_flag_ = true;
         }
 
 
@@ -527,25 +575,40 @@ namespace kcf_ros
             double start_time = ros::Time::now().toSec();
             int min_index = 0;
             if (!get_min_index(min_index)) {
-                // track_flag_ = false;
+                ROS_WARN("cannot find correspond index ...");
+                track_flag_ = false;
+                increment_cnt();
+                return;
             }
 
             if (!box_interpolation(min_index)) {
                 increment_cnt();
                 return;
             }
+            tracker_initialized_ = true;
+
             double total_time = ros::Time::now().toSec() - start_time;
             if (debug_log_)
                 ROS_INFO("interpolation total time: %.2lf [ms]", total_time * 1000);
         } else if (prev_boxes_callback_cnt_ == 0) {
+            tracker_initialized_ = false;
+            track_flag_ = false;
             increment_cnt();
             return;
         } else {
             cv::Rect output_rect;
-            if (!update_tracker(image, output_rect)) {
+            if (track_flag_ && tracker_initialized_) {
+                if (!update_tracker(image, output_rect, image_info->rect)) {
+                    increment_cnt();
+                    track_flag_ = false;
+                    tracker_initialized_ = false;
+                    return;
+                }
+            } else {
                 increment_cnt();
                 return;
             }
+
             visualize(image, output_rect, image_info->rect, raw_image_msg->header.stamp.toSec());
         }
         increment_cnt();
