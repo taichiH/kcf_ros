@@ -56,6 +56,8 @@ namespace kcf_ros
                                   const cv::Rect& nearest_roi_rect,
                                   double frames,
                                   float box_movement_ratio,
+                                  float tracker_conf,
+                                  float tracking_time,
                                   std::string mode)
     {
         cv::putText(image, "frame: " + std::to_string(frames),
@@ -81,6 +83,12 @@ namespace kcf_ros
                     cv::Scalar(0, 255, 0), 1, CV_AA);
         cv::putText(image, "mode: " + mode,
                     cv::Point(50, 400), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+                    cv::Scalar(0, 255, 0), 1, CV_AA);
+        cv::putText(image, "tracker_conf: " + std::to_string(tracker_conf),
+                    cv::Point(50, 450), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+                    cv::Scalar(0, 255, 0), 1, CV_AA);
+        cv::putText(image, "trackeing_time: " + std::to_string(tracking_time),
+                    cv::Point(50, 500), cv::FONT_HERSHEY_SIMPLEX, 0.8,
                     cv::Scalar(0, 255, 0), 1, CV_AA);
 
         if (mode == "init") {
@@ -137,16 +145,9 @@ namespace kcf_ros
         likelihood = 0;
         try {
             double tmp1 = 1 / (std::pow((2 * pi), distribution.d) * distribution.cov_det_sqrt);
-            std::cerr << "tmp1: " << tmp1 << std::endl;
-
             auto v_t = (input_vec - distribution.mean).transpose();
-            std::cout << "v_t: " << v_t << std::endl;
-
             auto v = (distribution.cov_inverse * (input_vec - distribution.mean));
-            std::cout << "v: " << v << std::endl;
-
             double tmp2 = std::exp(-0.5 * v_t * v);
-            std::cerr << "tmp2: " << tmp2 << std::endl;
 
             likelihood = tmp1 * tmp2;
             return true;
@@ -213,9 +214,6 @@ namespace kcf_ros
         float min_distance = std::pow(24, 24);
         cv::Rect box_on_nearest_roi_image;
 
-        // std::cerr << "---" << std::endl;
-        // std::cerr << detected_boxes->objects.size() << std::endl;
-
         for (autoware_msgs::DetectedObject box : detected_boxes->objects) {
             if (box.label != "traffic light")
                 continue;
@@ -239,131 +237,46 @@ namespace kcf_ros
             // ROS_INFO("detection score: %f, box: %d, %d, %d, %d", tmp_score, box.x, box.y, box.width, box.height);
         }
         if (!has_traffic_light) {
-            // ROS_WARN("no traffic light in detection results");
+            ROS_WARN("non traffic light label in detection results");
             return false;
         }
 
         return true;
     }
 
-    float KcfTrackerROS::check_detector_confidence(const std::vector<cv::Rect> detector_results,
-                                                   const float detection_score,
-                                                   float& movement,
-                                                   cv::Rect& init_box_on_raw_image)
+    float KcfTrackerROS::check_confidence(const std::vector<cv::Rect> results,
+                                          float& box_movement_ratio)
     {
-        float confidence = 0;
 
-        auto current_result = detector_results.at(detector_results.size() - 1);
-        auto prev_result = detector_results.at(detector_results.size() - 2);
+        box_movement_ratio = 0;
 
-        cv::Point2f current_result_center(current_result.x + current_result.width * 0.5,
-                                          current_result.y + current_result.height * 0.5);
-        cv::Point2f prev_result_center(prev_result.x + prev_result.width * 0.5,
-                                       prev_result.y + prev_result.height * 0.5);
+        auto current_result = results.at(results.size() - 1);
+        auto prev_result = results.at(results.size() - 2);
 
         float distance =
-            cv::norm(current_result_center - prev_result_center);
-        // ROS_WARN("detector distance: %f", distance);
+            cv::norm(cv::Point2f(current_result.x + current_result.width * 0.5,
+                                 current_result.y + current_result.height * 0.5) -
+                     cv::Point2f(prev_result.x + prev_result.width * 0.5,
+                                 prev_result.y + prev_result.height * 0.5));
 
         float raw_image_diagonal = Eigen::Vector2d(raw_image_width_, raw_image_height_).norm();
-        float box_movement_ratio = distance / raw_image_diagonal;
-        ROS_WARN("box_movement_ratio: %f", box_movement_ratio);
-
-        // ROS_WARN("prev_result.height, prev_result.width: %d, %d", prev_result.height, prev_result.width);
-
-        float prev_box_ratio = float(prev_result.height) / float(prev_result.width);
-        float current_box_ratio = float(current_result.height) / float(current_result.width);
-
-        float box_size_confidence;
-        int largest_ratio_index = 0; // prev:-2 current: -1
-        if (float(prev_box_ratio) > float(current_box_ratio)) {
-            box_size_confidence = float(current_box_ratio) / float(prev_box_ratio);
-            largest_ratio_index = -2;
-        } else {
-            box_size_confidence = float(prev_box_ratio)/ float(current_box_ratio);
-            largest_ratio_index = -1;
-        }
-
-        ROS_WARN("box_size_confidence, current_box_ratio, prev_box_ratio: %f, %f, %f",
-                 box_size_confidence, current_box_ratio, prev_box_ratio);
-
-        // box size significantly changed even box position almost unchanged between prev frame and current frame
-        if (box_movement_ratio < 0.05 and box_size_confidence < 0.7) {
-            // ROS_WARN("box_movement_ratio < 0.05 and box_size_confidence < 0.7: do not update box size");
-            // if (largest_ratio_index == -2) {
-            //     init_box_on_raw_image.width = prev_result.width;
-            //     init_box_on_raw_image.height = prev_result.height;
-            // } else if (largest_ratio_index == -1) {
-            //     init_box_on_raw_image.width = current_result.width;
-            //     init_box_on_raw_image.height = current_result.height;
-            // } else {
-            //     ROS_ERROR("error on %s", __func__);
-            // }
-
-            ROS_WARN("box_movement_ratio < 0.05 and box_size_confidence < 0.7: confidence 0");
-            confidence = 0;
-            return confidence;
-        }
-
-        ROS_WARN("box_movement_ratio > 0.05 and box_size_confidence > 0.7");
-
-        float detector_threshold;
-        if (detection_score > 0.8) {
-            detector_threshold = 0.5;
-        } else {
-            detector_threshold = 0.05;
-        }
-
-        if (box_movement_ratio < detector_threshold) {
-            confidence = 1;
-        } else {
-            confidence = 0;
-        }
-
-        movement = box_movement_ratio;
-        return confidence;
+        box_movement_ratio = distance / raw_image_diagonal;
+        return sigmoid(box_movement_ratio);
     }
 
-    float KcfTrackerROS::check_tracker_confidence(const std::vector<BBox_c> tracker_results)
-    {
-        float confidence = 0;
-
-        auto current_result = tracker_results.at(tracker_results.size() - 1);
-        auto prev_result = tracker_results.at(tracker_results.size() - 2);
-
-        float distance =
-            cv::norm(cv::Point2f(current_result.cx, current_result.cy) - cv::Point2f(prev_result.cx, prev_result.cy));
-        ROS_INFO("check tracker: distance: %f", distance);
-        if (distance < tracker_threshold_) {
-            confidence = 1;
-        } else {
-            confidence = 0;
-        }
-        return confidence;
+    float KcfTrackerROS::sigmoid(float x, float a) {
+        return(1 - (1.0 / (1.0 + exp(a * (-x + box_movement_thresh_)))));
     }
 
-    bool KcfTrackerROS::enqueue_detection_results(const cv::Rect& init_box_on_raw_image)
+    bool KcfTrackerROS::create_tracker_results_buffer(const cv::Rect& bb)
     {
         try {
-            if (detector_results_queue_.size() >= queue_size_)
-                detector_results_queue_.erase(detector_results_queue_.begin());
-            detector_results_queue_.push_back(init_box_on_raw_image);
+            if (tracker_results_buffer_.size() >= queue_size_)
+                tracker_results_buffer_.erase(tracker_results_buffer_.begin());
+            tracker_results_buffer_.push_back(bb);
             return true;
         } catch (...) {
-            std::cerr << "exception ..." << std::endl;
-            return false;
-        }
-    }
-
-    bool KcfTrackerROS::enqueue_tracking_results(const BBox_c& bb)
-    {
-        try {
-            if (tracker_results_queue_.size() >= queue_size_)
-                tracker_results_queue_.erase(tracker_results_queue_.begin());
-            tracker_results_queue_.push_back(bb);
-            return true;
-        } catch (...) {
-            std::cerr << "exception ..." << std::endl;
+            ROS_ERROR("failed create tracker results buffer");
             return false;
         }
     }
@@ -392,43 +305,15 @@ namespace kcf_ros
         return found_min_index;
     }
 
-    bool KcfTrackerROS::update_tracker(cv::Mat& image, cv::Rect& output_rect) {
+    bool KcfTrackerROS::update_tracker(cv::Mat& image, cv::Rect& output_rect, const cv::Rect& roi_rect,
+                                       float& box_movement_ratio, float& tracker_conf, float& tracking_time) {
         try {
             double start_time = ros::Time::now().toSec();
             tracker.track(image);
-            double tracking_time = ros::Time::now().toSec() - start_time;
+            tracking_time = ros::Time::now().toSec() - start_time;
 
-            // if (debug_log_)
-                // ROS_INFO("tracking time: %.2lf [ms]", tracking_time * 1000);
-
-            BBox_c bb = tracker.getBBox();
-            // ROS_WARN("bb: (%f, %f, %f, %f)", bb.cx, bb.cy, bb.w, bb.h);
-
-            cv::Point lt(bb.cx - bb.w * 0.5, bb.cy - bb.h * 0.5);
-            cv::Point rb(bb.cx + bb.w * 0.5, bb.cy + bb.h * 0.5);
-            if (rb.x > image.cols) rb.x = image.cols;
-            if (rb.y > image.rows) rb.y = image.rows;
-            if (lt.x < 0)  lt.x = 0;
-            if (lt.y < 0) lt.y = 0;
-            int width = rb.x - lt.x;
-            int height = rb.y - lt.y;
-            output_rect = cv::Rect(lt.x, lt.y, width, height);
-        } catch (...) {
-            ROS_ERROR("failed tracker update ");
-            return false;
-        }
-
-        return true;
-    }
-
-    bool KcfTrackerROS::update_tracker(cv::Mat& image, cv::Rect& output_rect, const cv::Rect& roi_rect) {
-        try {
-            double start_time = ros::Time::now().toSec();
-            tracker.track(image);
-            double tracking_time = ros::Time::now().toSec() - start_time;
-
-            // if (debug_log_)
-                // ROS_INFO("tracking time: %.2lf [ms]", tracking_time * 1000);
+            if (debug_log_)
+                ROS_INFO("tracking time: %.2lf [ms]", tracking_time * 1000);
 
             BBox_c bb = tracker.getBBox();
             // ROS_WARN("bb: (%f, %f, %f, %f)", bb.cx, bb.cy, bb.w, bb.h);
@@ -449,6 +334,15 @@ namespace kcf_ros
                 bb.cx > roi_rect.x + roi_rect.width ||
                 bb.cy > roi_rect.y + roi_rect.height) {
                 return false;
+            }
+
+            if(!create_tracker_results_buffer(output_rect))
+                return false;
+
+            box_movement_ratio = 0.0;
+            tracker_conf = 0.0;
+            if (tracker_results_buffer_.size() >= queue_size_) {
+                tracker_conf = check_confidence(tracker_results_buffer_, box_movement_ratio);
             }
 
         } catch (...) {
@@ -478,7 +372,7 @@ namespace kcf_ros
                                                    box_on_nearest_roi_image.height + offset_ * 2);
 
                     if (image_buffer.size() - min_index == 1) {
-                        visualize(image_buffer.at(i), init_box_on_raw_image, rect_buffer.at(i), image_stamps.at(i), 0, "init");
+                        visualize(image_buffer.at(i), init_box_on_raw_image, rect_buffer.at(i), image_stamps.at(i), 0, 0, 0, "init");
                     }
 
                     try {
@@ -493,7 +387,9 @@ namespace kcf_ros
                 }
             } else {
                 cv::Rect output_rect;
-                if (!update_tracker(image_buffer.at(i), output_rect, rect_buffer.at(i)))
+                float box_movement_ratio, tracker_conf, tracking_time;
+                if (!update_tracker(image_buffer.at(i), output_rect, rect_buffer.at(i),
+                                    box_movement_ratio, tracker_conf, tracking_time))
                     return false;
             }
         }
@@ -563,6 +459,8 @@ namespace kcf_ros
 
         cv::Mat image;
         load_image(image, raw_image_msg);
+        raw_image_width_, raw_image_height_ = image.cols, image.rows;
+
         ImageInfoPtr image_info(new ImageInfo(image,
                                               cv::Rect(nearest_roi_rect_msg->x,
                                                        nearest_roi_rect_msg->y,
@@ -613,19 +511,30 @@ namespace kcf_ros
             return;
         } else {
             cv::Rect output_rect;
+            float box_movement_ratio, tracker_conf, tracking_time;
             if (track_flag_ && tracker_initialized_) {
-                if (!update_tracker(image, output_rect, image_info->rect)) {
+
+                if (!update_tracker(image, output_rect, image_info->rect,
+                                    box_movement_ratio, tracker_conf, tracking_time)) {
                     increment_cnt();
                     track_flag_ = false;
                     tracker_initialized_ = false;
                     return;
                 }
+                if (tracker_conf < 0.8) {
+                    increment_cnt();
+                    track_flag_ = false;
+                    tracker_initialized_ = false;
+                    return;
+                }
+
             } else {
                 increment_cnt();
                 return;
             }
 
-            visualize(image, output_rect, image_info->rect, raw_image_msg->header.stamp.toSec(), 0, "default");
+            visualize(image, output_rect, image_info->rect, raw_image_msg->header.stamp.toSec(),
+                      box_movement_ratio, tracker_conf, tracking_time*1000, "default");
         }
         increment_cnt();
     }

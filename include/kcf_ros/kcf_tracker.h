@@ -93,17 +93,19 @@ namespace kcf_ros
         double num_scales_ = 7;
         bool is_approximate_sync_ = true;
         int interpolation_frequency_ = 1;
+
         bool tracker_initialized_ = false;
-        bool signal_changed_ = false;
-        bool first_init_ = true;
         bool track_flag_ = false;
+
+        bool signal_changed_ = false;
         int signal_ = 0;
         int prev_signal_ = 0;
-        int non_detected_count_ = 0;
+
         int offset_ = 0;
         int queue_size_ = 2;
-        float detector_threshold_ = 100; // pixel
-        float tracker_threshold_ = 100; // pixel
+
+        float box_movement_thresh_ = 0.02;
+
         int raw_image_width_ = 0;
         int raw_image_height_ = 0;
 
@@ -123,8 +125,7 @@ namespace kcf_ros
         std::vector<cv::Rect> rect_buffer;
 
 
-        std::vector<BBox_c> tracker_results_queue_;
-        std::vector<cv::Rect> detector_results_queue_;
+        std::vector<cv::Rect> tracker_results_buffer_;
 
         std_msgs::Header header_;
 
@@ -161,15 +162,14 @@ namespace kcf_ros
                                const cv::Rect& nearest_roi_rect,
                                double frames,
                                float box_movement_ratio = 0,
+                               float tracker_conf = 0,
+                               float tracking_time = 0,
                                std::string mode = "");
 
         virtual void load_image(cv::Mat& image, const sensor_msgs::Image::ConstPtr& image_msg);
 
         virtual void publish_messages(const cv::Mat& image, const cv::Mat& croped_image,
                                       const cv::Rect& rect, bool changed);
-
-        virtual double calc_detection_score(const autoware_msgs::DetectedObject& box,
-                                          const cv::Point2f& nearest_roi_image_center);
 
         virtual bool calc_gaussian(double& likelihood,
                                    const Eigen::Vector2d& input_vec,
@@ -180,17 +180,6 @@ namespace kcf_ros
                                 cv::Rect& output_box,
                                 float& score);
 
-        virtual float check_detector_confidence(const std::vector<cv::Rect> detector_results,
-                                                const float detection_score,
-                                                float& movement,
-                                                cv::Rect& init_box_on_raw_image);
-
-        virtual float check_tracker_confidence(const std::vector<BBox_c> tracker_results);
-
-        virtual bool enqueue_detection_results(const cv::Rect& init_box_on_raw_image);
-
-        virtual bool enqueue_tracking_results(const BBox_c& bb);
-
         virtual bool get_min_index(int& min_index);
 
         virtual bool box_interpolation(int min_index);
@@ -199,13 +188,22 @@ namespace kcf_ros
 
         virtual bool clear_buffer();
 
-        virtual bool update_tracker(cv::Mat& image, cv::Rect& output_rect);
+        virtual bool create_tracker_results_buffer(const cv::Rect& bb);
 
-        virtual bool update_tracker(cv::Mat& image, cv::Rect& output_rect, const cv::Rect& roi_rect);
+        virtual float check_confidence(const std::vector<cv::Rect> results,
+                                       float& box_movement_ratio);
+
+        virtual bool update_tracker(cv::Mat& image, cv::Rect& output_rect, const cv::Rect& roi_rect,
+                                    float& box_movement_ratio, float& tracker_conf, float& tracking_time);
+
+        virtual double calc_detection_score(const autoware_msgs::DetectedObject& box,
+                                          const cv::Point2f& nearest_roi_image_center);
 
         virtual void increment_cnt();
 
         virtual int calc_offset(int x);
+
+        virtual float sigmoid(float x, float a=200);
 
     private:
     }; // class KcfTrackerROS
