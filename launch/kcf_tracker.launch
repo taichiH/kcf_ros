@@ -4,8 +4,8 @@
   <!-- <arg name="input_yolo_detected_boxes" default="/detection/image_detector/objects" /> -->
   <arg name="input_yolo_detected_boxes" default="/transform_msgs_jsk2autoware/output" />
 
-  <arg name="debug_log" default="true" />
-  <arg name="debug_view" default="true" />
+  <arg name="debug_log" default="false" />
+  <arg name="debug_view" default="false" />
   <arg name="kernel_sigma" default="0.5" />
   <arg name="cell_size" default="4" />
   <arg name="num_scales" default="14" />

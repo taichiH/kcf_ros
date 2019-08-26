@@ -188,7 +188,6 @@ namespace kcf_ros
         }
 
         score = (w_score + w_distance) / 2;
-        // ROS_WARN("score, w_distance, w_score: %f, %f, %f", score, w_distance, w_score);
 
         return score;
     }
@@ -316,7 +315,6 @@ namespace kcf_ros
                 ROS_INFO("tracking time: %.2lf [ms]", tracking_time * 1000);
 
             BBox_c bb = tracker.getBBox();
-            // ROS_WARN("bb: (%f, %f, %f, %f)", bb.cx, bb.cy, bb.w, bb.h);
 
             cv::Point lt(bb.cx - bb.w * 0.5, bb.cy - bb.h * 0.5);
             cv::Point rb(bb.cx + bb.w * 0.5, bb.cy + bb.h * 0.5);
@@ -355,10 +353,11 @@ namespace kcf_ros
 
 
     bool KcfTrackerROS::box_interpolation(int min_index){
-        ROS_INFO("buffer_size: %d, freq: %d, calc size: %d",
-                 image_buffer.size() - min_index,
-                 interpolation_frequency_,
-                 int((image_buffer.size() - min_index - 1) / interpolation_frequency_));
+        if (debug_log_)
+            ROS_INFO("buffer_size: %d, freq: %d, calc size: %d",
+                     image_buffer.size() - min_index,
+                     interpolation_frequency_,
+                     int((image_buffer.size() - min_index - 1) / interpolation_frequency_));
 
         for (int i=min_index; i<image_buffer.size(); i+=interpolation_frequency_) {
             if (i == min_index) {
@@ -371,8 +370,22 @@ namespace kcf_ros
                                                    box_on_nearest_roi_image.width + offset_ * 2,
                                                    box_on_nearest_roi_image.height + offset_ * 2);
 
+                    cv::Point lt(init_box_on_raw_image.x, init_box_on_raw_image.y);
+                    cv::Point rb(init_box_on_raw_image.x + init_box_on_raw_image.width,
+                                 init_box_on_raw_image.y + init_box_on_raw_image.height);
+                    if (rb.x > image_buffer.at(i).cols) rb.x = image_buffer.at(i).cols;
+                    if (rb.y > image_buffer.at(i).rows) rb.y = image_buffer.at(i).rows;
+                    if (lt.x < 0)  lt.x = 0;
+                    if (lt.y < 0) lt.y = 0;
+                    int width = rb.x - lt.x;
+                    int height = rb.y - lt.y;
+                    init_box_on_raw_image = cv::Rect(lt.x, lt.y, width, height);
+
                     if (image_buffer.size() - min_index == 1) {
-                        visualize(image_buffer.at(i), init_box_on_raw_image, rect_buffer.at(i), image_stamps.at(i), 0, 0, 0, "init");
+                        cv::Mat croped_image = image_buffer.at(i)(init_box_on_raw_image).clone();
+                        cv::Mat vis_image = image_buffer.at(i).clone();
+                        visualize(vis_image, init_box_on_raw_image, rect_buffer.at(i), image_stamps.at(i), 0, 0, 0, "init");
+                        publish_messages(vis_image, croped_image, init_box_on_raw_image, signal_changed_);
                     }
 
                     try {
@@ -452,7 +465,7 @@ namespace kcf_ros
         boost::mutex::scoped_lock lock(mutex_);
         std::cerr << "------------------" << __func__ << std::endl;
 
-        if (cnt_ == 0) {
+        if (cnt_ == 0 and debug_view_) {
             cv::namedWindow("output", CV_WINDOW_NORMAL);
             cv::resizeWindow("output", 1400, 1000);
         }
@@ -482,7 +495,6 @@ namespace kcf_ros
             create_buffer(image_info);
             track_flag_ = true;
         }
-
 
         float nearest_stamp = 0;
         if (boxes_callback_cnt_ != prev_boxes_callback_cnt_) {
@@ -533,8 +545,11 @@ namespace kcf_ros
                 return;
             }
 
-            visualize(image, output_rect, image_info->rect, raw_image_msg->header.stamp.toSec(),
+            cv::Mat croped_image = image(output_rect).clone();
+            cv::Mat vis_image = image.clone();
+            visualize(vis_image, output_rect, image_info->rect, raw_image_msg->header.stamp.toSec(),
                       box_movement_ratio, tracker_conf, tracking_time*1000, "default");
+            publish_messages(vis_image, croped_image, output_rect, signal_changed_);
         }
         increment_cnt();
     }
