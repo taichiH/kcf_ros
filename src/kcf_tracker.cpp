@@ -55,7 +55,8 @@ namespace kcf_ros
                                   const cv::Rect& rect,
                                   const cv::Rect& nearest_roi_rect,
                                   double frames,
-                                  float box_movement_ratio)
+                                  float box_movement_ratio,
+                                  std::string mode)
     {
         cv::putText(image, "frame: " + std::to_string(frames),
                     cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 0.8,
@@ -78,8 +79,16 @@ namespace kcf_ros
         cv::putText(image, "offset: " + std::to_string(offset_),
                     cv::Point(50, 350), cv::FONT_HERSHEY_SIMPLEX, 0.8,
                     cv::Scalar(0, 255, 0), 1, CV_AA);
+        cv::putText(image, "mode: " + mode,
+                    cv::Point(50, 400), cv::FONT_HERSHEY_SIMPLEX, 0.8,
+                    cv::Scalar(0, 255, 0), 1, CV_AA);
 
-        cv::rectangle(image, rect, CV_RGB(0,255,0), 2);
+        if (mode == "init") {
+            cv::rectangle(image, rect, CV_RGB(0,0,255), 2);
+        } else {
+            cv::rectangle(image, rect, CV_RGB(0,255,0), 2);
+        }
+
         cv::rectangle(image, cv::Rect(nearest_roi_rect.x, nearest_roi_rect.y,
                                       nearest_roi_rect.width, nearest_roi_rect.height),
                       CV_RGB(255,0,0), 2);
@@ -359,17 +368,16 @@ namespace kcf_ros
         }
     }
 
-    void KcfTrackerROS::boxes_callback(const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes){
-        boost::mutex::scoped_lock lock(mutex_);
-        detected_boxes_ = detected_boxes;
-        detected_boxes_stamp_ = detected_boxes_->header.stamp.toSec();
-        boxes_callback_cnt_++;
-    }
-
     bool KcfTrackerROS::get_min_index(int& min_index){
         min_index = 0;
         bool found_min_index = false;
-        for (int i=image_stamps.size() - 1; i>0; i--) {
+
+        if (image_stamps.empty()) {
+            ROS_ERROR("image_stamps is empty");
+            return false;
+        }
+
+        for (int i=image_stamps.size() - 1; i>=0; i--) {
             if (image_stamps.at(i) - detected_boxes_stamp_ < 0) {
                 found_min_index = true;
                 if (std::abs(image_stamps.at(i+1) - detected_boxes_stamp_) <
@@ -454,7 +462,7 @@ namespace kcf_ros
 
     bool KcfTrackerROS::box_interpolation(int min_index){
         ROS_INFO("buffer_size: %d, freq: %d, calc size: %d",
-                 image_buffer.size() - min_index - 1,
+                 image_buffer.size() - min_index,
                  interpolation_frequency_,
                  int((image_buffer.size() - min_index - 1) / interpolation_frequency_));
 
@@ -468,6 +476,11 @@ namespace kcf_ros
                                                    box_on_nearest_roi_image.y + rect_buffer.at(i).y - offset_,
                                                    box_on_nearest_roi_image.width + offset_ * 2,
                                                    box_on_nearest_roi_image.height + offset_ * 2);
+
+                    if (image_buffer.size() - min_index == 1) {
+                        visualize(image_buffer.at(i), init_box_on_raw_image, rect_buffer.at(i), image_stamps.at(i), 0, "init");
+                    }
+
                     try {
                         tracker.init(image_buffer.at(i), init_box_on_raw_image);
                     } catch (...) {
@@ -482,7 +495,6 @@ namespace kcf_ros
                 cv::Rect output_rect;
                 if (!update_tracker(image_buffer.at(i), output_rect, rect_buffer.at(i)))
                     return false;
-                // visualize(image_buffer.at(i), output_rect, rect_buffer.at(i), frames);
             }
         }
         return true;
@@ -529,6 +541,15 @@ namespace kcf_ros
         return offset;
     }
 
+
+    void KcfTrackerROS::boxes_callback(const autoware_msgs::DetectedObjectArray::ConstPtr& detected_boxes){
+        boost::mutex::scoped_lock lock(mutex_);
+        detected_boxes_ = detected_boxes;
+        detected_boxes_stamp_ = detected_boxes_->header.stamp.toSec();
+        boxes_callback_cnt_++;
+    }
+
+
     void KcfTrackerROS::callback(const sensor_msgs::Image::ConstPtr& raw_image_msg,
                                  const kcf_ros::Rect::ConstPtr& nearest_roi_rect_msg)
     {
@@ -551,12 +572,7 @@ namespace kcf_ros
                                               raw_image_msg->header.stamp.toSec()));
         signal_ = nearest_roi_rect_msg->signal;
         signal_changed_ = signal_ != prev_signal_;
-
         offset_ = calc_offset(nearest_roi_rect_msg->height);
-
-        std::cerr << "nearest_roi size: " << nearest_roi_rect_msg->width << ", " << nearest_roi_rect_msg->height << std::endl;
-        std::cerr << "signal: " << signal_ << ", prev_signal: " << prev_signal_ << std::endl;
-
 
         if (signal_changed_) {
             clear_buffer();
@@ -609,7 +625,7 @@ namespace kcf_ros
                 return;
             }
 
-            visualize(image, output_rect, image_info->rect, raw_image_msg->header.stamp.toSec());
+            visualize(image, output_rect, image_info->rect, raw_image_msg->header.stamp.toSec(), 0, "default");
         }
         increment_cnt();
     }

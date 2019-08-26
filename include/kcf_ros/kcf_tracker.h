@@ -160,7 +160,8 @@ namespace kcf_ros
                                const cv::Rect& rect,
                                const cv::Rect& nearest_roi_rect,
                                double frames,
-                               float box_movement_ratio = 0);
+                               float box_movement_ratio = 0,
+                               std::string mode = "");
 
         virtual void load_image(cv::Mat& image, const sensor_msgs::Image::ConstPtr& image_msg);
 
